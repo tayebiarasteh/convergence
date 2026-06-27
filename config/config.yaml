@@ -1,0 +1,508 @@
+ocean_root:    /PATH
+home_root:     /PATH
+user_home:     /PATH
+
+datasets_root: "${ocean_root}/datasets"
+xray_root:     "${datasets_root}/XRay"
+outputs_root:  "${ocean_root}/Repositories_target_files/convergence"
+repo_root:     "${home_root}/Repositories/convergence"
+manifests_dir: "${repo_root}/data_loader"
+
+Convergence:
+  global_config_path: "${repo_root}/config/config.yaml"
+  seed: 42
+  target_resolution: 224
+
+  hf_token: "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"
+
+  datasets_root: "${datasets_root}"
+  xray_root:     "${xray_root}"
+  outputs_root:  "${outputs_root}"
+  repo_root:     "${repo_root}"
+  manifests_dir: "${manifests_dir}"
+
+  cxr:
+    pool_manifest_csv:  "${manifests_dir}/cxr_pool_manifest.csv"
+    paired_reports_csv: "${manifests_dir}/cxr_paired_reports_manifest.csv"
+
+    verify_image_exists: true
+    cap_per_site_view:   null
+    drop_lateral:        true
+
+    reports:
+      sources: [mimic, chexpert_plus]
+      use_sections: [section_findings, section_impression]
+
+    sites:
+      mimic:
+        enabled:        true
+        image_root:     "${xray_root}/MIMIC"
+        master_csv:     "${xray_root}/MIMIC/mimic_master_list.csv"
+        split_col:      split
+        subject_id_col: subject_id
+        study_id_col:   study_id
+        age_col:        age
+        sex_col:        gender
+        report_col:     report_rel_path
+        report_is_text: false
+        chexpert_plus_csv: null
+
+      chexpert:
+        enabled:        true
+        image_root:     "${xray_root}"
+        master_csv:     "${xray_root}/CheXpert-v1.0/chexpert_master_list.csv"
+        split_col:      split
+        subject_id_col: subject_id
+        study_id_col:   null
+        age_col:        age
+        sex_col:        gender
+        report_col:     null
+        report_is_text: false
+        chexpert_plus_csv:  "${xray_root}/CheXpert-v1.0/chexpert_plus.csv"
+        report_join_col:    jpg_rel_path
+        race_col:           race
+        ethnicity_col:      ethnicity
+        insurance_col:      insurance_type
+
+      vindr_cxr:
+        enabled:        true
+        image_root:     "${xray_root}/vindr-cxr1"
+        master_csv:     "${xray_root}/vindr-cxr1/vindr_master_list.csv"
+        split_col:      split
+        subject_id_col: null
+        study_id_col:   null
+        age_col:        age
+        sex_col:        gender
+        report_col:     null
+        report_is_text: false
+        chexpert_plus_csv: null
+
+      nih_cxr14:
+        enabled:        true
+        image_root:     "${xray_root}/NIH_ChestX-ray14"
+        master_csv:     "${xray_root}/NIH_ChestX-ray14/final_cxr14_master_list.csv"
+        split_col:      split
+        subject_id_col: patient_id
+        study_id_col:   null
+        age_col:        age
+        sex_col:        gender
+        report_col:     null
+        report_is_text: false
+        chexpert_plus_csv: null
+
+      padchest:
+        enabled:        true
+        image_root:     "${xray_root}/padchest"
+        master_csv:     "${xray_root}/padchest/padchest_master_list_20percenttest.csv"
+        split_col:      split
+        subject_id_col: PatientID
+        study_id_col:   StudyID
+        age_col:        age
+        sex_col:        gender
+        report_col:     null
+        report_is_text: false
+        chexpert_plus_csv: null
+
+      vindr_pcxr:
+        enabled:        true
+        image_root:     "${xray_root}/vindr-pcxr"
+        master_csv:     "${xray_root}/vindr-pcxr/final_modified_vindr-pcxr.csv"
+        split_col:      split
+        subject_id_col: null
+        study_id_col:   null
+        age_col:        null
+        sex_col:        null
+        report_col:     null
+        report_is_text: false
+        chexpert_plus_csv: null
+
+  histo:
+    pool_manifest_csv:   "${manifests_dir}/histo_pool_manifest.csv"
+    nct_crc_labels_csv:  "${manifests_dir}/nct_crc_labels.csv"
+    output_resolution:   224
+    cases_per_class:     2000
+
+    pcam:
+      enabled:               true
+      h5_dir:                "${datasets_root}/Histo/PCam"
+      split:                 test
+      patches_subdir:        patches
+      extract_cap_per_class: null
+
+    nct_crc:
+      enabled:             true
+      root:                "${datasets_root}/Histo/NCT-CRC-HE-100K"
+      train_subdir:        NCT-CRC-HE-100K
+      val_subdir:          CRC-VAL-HE-7K
+      classes: [ADI, BACK, DEB, LYM, MUC, MUS, NORM, STR, TUM]
+
+
+  quilt:
+    enabled:           true
+    root:              "${datasets_root}/Histo/Quilt-1M"
+    lookup_csv:        "${datasets_root}/Histo/Quilt-1M/quilt_1M_lookup.csv"
+    images_subdir:     extracted_images
+    pool_manifest_csv: "${manifests_dir}/quilt_pool_manifest.csv"
+    image_col:         image_path
+    caption_col:       caption
+    split_col:         split
+    split:             train
+    cases_cap:         null
+
+  fundus:
+    enabled:           true
+    image_root:        "${datasets_root}/Fundus"
+    pool_manifest_csv: "${manifests_dir}/fundus_pool_manifest.csv"
+    cases_per_source:  2000
+    referable_dr_min:  2
+    sources:
+      aptos:
+        master_csv:  "${datasets_root}/Fundus/APTOS2019/train.csv"
+        source_tag:  aptos
+        id_col:      id_code
+        label_col:   diagnosis
+      messidor:
+        master_csv:  "${datasets_root}/Fundus/Messidor2/messidor_data.csv"
+        source_tag:  messidor
+        id_col:      image_id
+        label_col:   adjudicated_dr_grade
+        gradable_col: adjudicated_gradable
+
+  derm:
+    enabled:           true
+    image_root:        "${datasets_root}/Derm"
+    pool_manifest_csv: "${manifests_dir}/derm_pool_manifest.csv"
+    cases_per_class:   1000
+    sources:
+      isic2019:
+        gt_csv:     "${datasets_root}/Derm/ISIC2019/ISIC_2019_Training_GroundTruth.csv"
+        source_tag: isic2019
+        id_col:     image
+        classes:    [MEL, NV, BCC, AK, BKL, DF, VASC, SCC]
+        class_map:
+          MEL:  melanoma
+          NV:   melanocytic_nevus
+          BCC:  basal_cell_carcinoma
+          AK:   actinic_keratosis
+          BKL:  benign_keratosis
+          DF:   dermatofibroma
+          VASC: vascular_lesion
+          SCC:  squamous_cell_carcinoma
+
+  mammo:
+    enabled:           true
+    image_root:        "${datasets_root}/Mammo/VinDr-Mammo"
+    pool_manifest_csv: "${manifests_dir}/mammo_pool_manifest.csv"
+    cases_per_finding: 500
+    findings_csv:      "${datasets_root}/Mammo/VinDr-Mammo/finding_annotations.csv"
+    image_subdir:      images
+    preprocessed_subdir: preprocessed224
+    usable_findings:   [mass, suspicious_calcification, focal_asymmetry, architectural_distortion, asymmetry]
+    category_map:
+      "Mass":                     mass
+      "Suspicious Calcification": suspicious_calcification
+      "Focal Asymmetry":          focal_asymmetry
+      "Architectural Distortion": architectural_distortion
+      "Asymmetry":                asymmetry
+
+  prevalence:
+    out_csv: "${outputs_root}/prevalence/cxr_prevalence.csv"
+
+  ontology:
+    icd10_order_txt:    "${datasets_root}/ontology/ICD10/icd10cm_order_2027.txt"
+    icd10_distance_csv: "${outputs_root}/ontology/icd10_finding_distance.csv"
+    comorbidity_csv:    "${outputs_root}/ontology/cxr_comorbidity.csv"
+
+  embeddings:
+    output_dir:      "${outputs_root}/embeddings"
+    text_output_dir: "${outputs_root}/text_embeddings"
+    batch_size:   64
+    num_workers:  4
+    fp16:         true
+    purge_hf_cache_after_use: true
+    hf_cache_dir: "${user_home}/.cache/huggingface/hub"
+    consensus_max_cases: 50000
+    probe_max_train: 25000
+    probe_max_test: 20000
+    pools:
+      cxr_pool:    {manifest: "${manifests_dir}/cxr_pool_manifest.csv",    modality: cxr}
+      histo_pool:  {manifest: "${manifests_dir}/histo_pool_manifest.csv",  modality: histo}
+      fundus_pool: {manifest: "${manifests_dir}/fundus_pool_manifest.csv", modality: fundus}
+      derm_pool:   {manifest: "${manifests_dir}/derm_pool_manifest.csv",   modality: derm}
+      mammo_pool:  {manifest: "${manifests_dir}/mammo_pool_manifest.csv",  modality: mammo}
+      quilt_pool:  {manifest: "${manifests_dir}/quilt_pool_manifest.csv",  modality: histo}
+
+  encoder_panel:
+    image:
+      rad_dino:
+        hf_id: microsoft/rad-dino
+        type: dino_cls
+        dim: 768
+        params_m: 86
+        year: 2024
+        roles: [core, cxr]
+      biomedclip_image:
+        hf_id: microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224
+        type: clip_pooled
+        dim: 512
+        params_m: 86
+        year: 2023
+        roles: [core, cxr]
+      txrv_densenet:
+        hf_id: TXRV_BUILTIN
+        weights: densenet121-res224-all
+        type: txrv
+        dim: 1024
+        params_m: 7
+        year: 2020
+        roles: [core, cxr]
+      medgemma_vision:
+        hf_id: google/medgemma-1.5-4b-it
+        type: vlm_vision
+        vision_attr: model.vision_tower
+        dim: 1152
+        params_m: 400
+        year: 2025
+        roles: [core, cxr]
+      llava_med_vision:
+        hf_id: chaoyinshe/llava-med-v1.5-mistral-7b-hf
+        type: vlm_vision
+        vision_attr: model.vision_tower
+        dim: 1024
+        params_m: 304
+        year: 2024
+        roles: [core, cxr]
+      llava_onevision_vision:
+        hf_id: llava-hf/llava-onevision-qwen2-7b-ov-hf
+        type: vlm_vision
+        vision_attr: model.vision_tower
+        dim: 1152
+        params_m: 729
+        year: 2024
+        roles: [core, cxr]
+      dinov3_s:
+        hf_id: facebook/dinov3-vits16-pretrain-lvd1689m
+        type: dino_cls
+        dim: 384
+        params_m: 22
+        year: 2025
+        roles: [ladder]
+      dinov3_b:
+        hf_id: facebook/dinov3-vitb16-pretrain-lvd1689m
+        type: dino_cls
+        dim: 768
+        params_m: 86
+        year: 2025
+        roles: [ladder]
+      dinov3_l:
+        hf_id: facebook/dinov3-vitl16-pretrain-lvd1689m
+        type: dino_cls
+        dim: 1024
+        params_m: 307
+        year: 2025
+        roles: [core, ladder]
+      dinov3_hplus:
+        hf_id: facebook/dinov3-vith16plus-pretrain-lvd1689m
+        type: dino_cls
+        dim: 1536
+        params_m: 632
+        year: 2025
+        roles: [ladder]
+      dinov2_large:
+        hf_id: facebook/dinov2-large
+        type: dino_cls
+        dim: 1024
+        params_m: 307
+        year: 2023
+        roles: [core, ladder]
+      clip_vitl14:
+        hf_id: openai/clip-vit-large-patch14
+        type: clip_pooled
+        dim: 768
+        params_m: 307
+        year: 2021
+        roles: [core]
+      siglip2_large:
+        hf_id: google/siglip2-large-patch16-512
+        type: clip_pooled
+        dim: 1152
+        params_m: 307
+        year: 2024
+        roles: [core]
+      uni:
+        hf_id: MahmoodLab/UNI
+        type: timm_cls
+        dim: 1024
+        params_m: 307
+        year: 2024
+        roles: [core, xmod, ladder]
+        gated: true
+      uni2:
+        hf_id: MahmoodLab/UNI2-h
+        type: timm_cls
+        dim: 1536
+        params_m: 632
+        year: 2024
+        roles: [core, xmod, ladder]
+        gated: true
+      virchow:
+        hf_id: paige-ai/Virchow
+        type: timm_cls
+        dim: 1280
+        params_m: 307
+        year: 2024
+        roles: [core, xmod, ladder]
+        gated: true
+      virchow2:
+        hf_id: paige-ai/Virchow2
+        type: timm_cls
+        dim: 1280
+        params_m: 632
+        year: 2024
+        roles: [core, xmod, ladder]
+        gated: true
+      prov_gigapath:
+        hf_id: prov-gigapath/prov-gigapath
+        type: timm_cls
+        dim: 1536
+        params_m: 1100
+        year: 2024
+        roles: [core, xmod]
+        gated: true
+      conch_image:
+        hf_id: MahmoodLab/CONCH
+        type: timm_cls
+        dim: 512
+        params_m: 86
+        year: 2024
+        roles: [core, xmod]
+        gated: true
+      phikon_v2:
+        hf_id: owkin/phikon-v2
+        type: dino_cls
+        dim: 1024
+        params_m: 307
+        year: 2024
+        roles: [core, xmod, ladder]
+      retfound:
+        hf_id: iszt/RETFound_mae_meh
+        type: dino_cls
+        dim: 1024
+        params_m: 307
+        year: 2023
+        roles: [core, xmod]
+      random_init_vit_l:
+        hf_id: null
+        type: random_init
+        arch: vit_large_patch16_224
+        dim: 1024
+        params_m: 307
+        year: 0
+        roles: [control, random_init]
+
+    text:
+      pubmedbert:
+        hf_id: microsoft/BiomedNLP-BiomedBERT-base-uncased-abstract-fulltext
+        type: bert_cls
+        dim: 768
+        roles: [text]
+      medcpt_query:
+        hf_id: ncbi/MedCPT-Query-Encoder
+        type: bert_mean
+        dim: 768
+        roles: [text]
+      medcpt_article:
+        hf_id: ncbi/MedCPT-Article-Encoder
+        type: bert_mean
+        dim: 768
+        roles: [text]
+      biomedclip_text:
+        hf_id: microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224
+        type: clip_text
+        dim: 512
+        roles: [text]
+      conch_text:
+        hf_id: MahmoodLab/CONCH
+        type: conch_text
+        dim: 512
+        roles: [text]
+        gated: true
+      medgemma_27b_text:
+        hf_id: google/medgemma-27b-it
+        type: causal_lm_last
+        dim: 5376
+        roles: [text]
+        load_in_4bit: true
+        batch_size: 4
+      sapbert:
+        hf_id: cambridgeltl/SapBERT-from-PubMedBERT-fulltext
+        type: bert_cls
+        dim: 768
+        roles: [text]
+
+  alignment:
+    k_values:         [5, 10, 20, 50]
+    headline_k:       10
+    n_samples:        [1000, 5000, 20000, 100000]
+    anchor_sizes:     [256, 1024, 4096]
+    headline_anchors: 1024
+    cka_rbf_n_subsample: 2000
+    results_base_dir: "${outputs_root}"
+    consensus_dir:    "${outputs_root}/consensus"
+    e1_pools:   [cxr_pool]
+    e2_pools:   [cxr_pool]
+    e3_pools:   [cxr_pool]
+    e4_pools:   [cxr_pool]
+    e6_pools:   [cxr_pool]
+    e1_roles:   [core]
+    e4_roles:   [ladder, core]
+    xmod_roles: [xmod, core]
+
+  controlled:
+    ckpts_dir:         "${outputs_root}/controlled_ckpts"
+    results_e5_dir:    "${outputs_root}/results_e5_driver"
+    objectives:        [ssl, supervised, image_text]
+    backbones:         [vit_s, vit_b]
+    inits:             [dinov3_s]
+    modalities:        [cxr, histo]
+    cxr_n_labels:      13
+    histo_n_classes:   9
+    epochs:            50
+    batch_size:        256
+    effective_batch_size: 512
+    lr:                0.0001
+    weight_decay:      0.05
+    warmup_fraction:   0.1
+    n_seeds:           1
+    n_boot_alignment:  1000
+    ssl_method:        mae
+    mae_mask_ratio:    0.75
+    clip_temp:         0.07
+    bf16:              true
+    gradient_checkpointing: true
+
+  reader_study:
+    n_gold_r1:          500
+    n_triplets_r1:      300
+    n_overlap_r2:       150
+    n_triplet_overlap_r2: 100
+    n_extension_r2:     150
+    gold_csv:            "${outputs_root}/results_e7_artifact/reader/gold_labels.csv"
+    triplets_csv:        "${outputs_root}/results_e3_ontology/reader/triplets.csv"
+    deviation_score_csv: "${outputs_root}/results_e7_artifact/deviation_scores.csv"
+    agreement_csv:       "${outputs_root}/results_e7_artifact/reader/inter_rater_agreement.csv"
+    n_gold_path:         500
+    n_triplets_path:     300
+    path_gold_csv:       "${outputs_root}/results_e7_artifact/reader/path_gold_labels.csv"
+    path_triplets_csv:   "${outputs_root}/results_e3_ontology/reader/path_triplets.csv"
+    histo_deviation_score_csv: ""
+
+  theory:
+    results_e8_dir:  "${outputs_root}/results_e8_theory"
+    n_synthetic:     2000
+    n_signal_dims:   32
+    n_nuisance_dims: 128
+    n_labels:        10
+    label_noise:     0.1
+    n_seeds:         5
+    informativeness_grid: [0.1, 0.25, 0.5, 0.75, 1.0]

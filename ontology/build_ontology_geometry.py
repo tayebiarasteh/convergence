@@ -1,29 +1,6 @@
 """
 ontology/build_ontology_geometry.py
-
-Builds the two clinical-ontology reference structures for E3:
-
-  1. ICD-10-CM hierarchy distances between canonical CXR findings.
-     The ICD-10-CM tabular order file (icd10cm_order_2027.txt) is parsed to
-     validate the hardcoded finding-to-code mapping. Pairwise distance between
-     two findings is computed as the edit distance on the code tree, using the
-     longest-common-prefix (LCP) of the normalized (no-period) codes: distance
-     = (len_a - lcp) + (len_b - lcp). Codes in the same category (3-char
-     prefix) have distance 2; codes in the same chapter (1-char) have larger
-     distances. This is a well-defined, reproducible proxy for semantic
-     clinical distance.
-
-  2. Comorbidity co-occurrence from the CXR pool manifest.
-     For each pair of canonical findings, the comorbidity strength is the
-     Jaccard similarity of their positive-case sets across the MIMIC site
-     (largest and most reliably labeled). Jaccard = |A ∩ B| / |A ∪ B|.
-
-Output:
-  icd10_finding_distance.csv  14x14 pairwise distance matrix (long format)
-  cxr_comorbidity.csv         14x14 pairwise Jaccard matrix (long format)
-
-Run after build_cxr_pool.py:
-    python -m ontology.build_ontology_geometry
+Created on May 26, 2026
 
 @author: Soroosh Tayebi Arasteh
 https://github.com/tayebiarasteh
@@ -40,10 +17,6 @@ from data_loader.build_utils import read_csv_defensively
 from data_loader.cxr_harmonization import CANONICAL_CXR_FINDINGS
 
 
-# ---------------------------------------------------------------------------
-# Hardcoded finding -> ICD-10-CM code mapping (no periods, as stored in file)
-# Category (3-char) codes are used for robustness across annual revisions.
-# ---------------------------------------------------------------------------
 FINDING_TO_ICD10: Dict[str, str] = {
     "atelectasis":               "J9811",   # J98.11 Atelectasis
     "cardiomegaly":              "I517",    # I51.7  Cardiomegaly
@@ -76,19 +49,12 @@ def _lcp_length(a: str, b: str) -> int:
 
 
 def _hierarchy_distance(code_a: str, code_b: str) -> int:
-    """ICD-10 hierarchy distance via longest common prefix.
-    d(A, B) = (len(A) - lcp) + (len(B) - lcp).
-    Same code -> 0; same category (3 chars) -> 2; same chapter letter -> large."""
     a, b = _normalize_code(code_a), _normalize_code(code_b)
     lcp  = _lcp_length(a, b)
     return (len(a) - lcp) + (len(b) - lcp)
 
 
 def _parse_icd10_codes(txt_path: str) -> set:
-    """Parse valid ICD-10-CM codes from the tabular order file.
-    Returns a set of normalized (no-period) code strings.
-    The file format: 5-digit order, space, 7-char code (left-just., space-padded),
-    space, 1-char valid indicator, space, description."""
     codes = set()
     if not os.path.exists(txt_path):
         print(f"[build_ontology] ICD-10 order file not found: {txt_path}. "
@@ -138,7 +104,6 @@ def _build_comorbidity(pool_csv: str) -> pd.DataFrame:
     """Build 14x14 pairwise Jaccard comorbidity matrix from MIMIC pool labels."""
     pool = read_csv_defensively(pool_csv)
     mimic = pool[pool["dataset"] == "mimic"].copy()
-    print(f"[build_ontology] MIMIC rows for comorbidity: {len(mimic)}")
 
     findings = CANONICAL_CXR_FINDINGS
     # Build binary presence arrays
@@ -181,16 +146,11 @@ def main_build_ontology_geometry(global_config_path: str):
     icd10_csv   = ocfg["icd10_distance_csv"]
     comorbid_csv = ocfg["comorbidity_csv"]
 
-    print("[build_ontology] Building ICD-10 hierarchy distances.")
     valid_codes = _parse_icd10_codes(icd10_txt)
     icd10_df    = _build_icd10_distances(valid_codes)
     os.makedirs(os.path.dirname(icd10_csv), exist_ok=True)
     icd10_df.to_csv(icd10_csv, index=False)
-    print(f"[build_ontology] ICD-10 distances -> {icd10_csv}")
-    print(icd10_df.pivot(index="finding_a", columns="finding_b",
-                          values="icd10_distance").to_string())
 
-    print("\n[build_ontology] Building comorbidity co-occurrence from MIMIC pool.")
     if not os.path.exists(pool_csv):
         print(f"  Pool manifest not found: {pool_csv}. "
               f"Skipping comorbidity (run build_cxr_pool first).")
@@ -198,10 +158,3 @@ def main_build_ontology_geometry(global_config_path: str):
         comorbid_df = _build_comorbidity(pool_csv)
         os.makedirs(os.path.dirname(comorbid_csv), exist_ok=True)
         comorbid_df.to_csv(comorbid_csv, index=False)
-        print(f"[build_ontology] Comorbidity matrix -> {comorbid_csv}")
-
-
-if __name__ == "__main__":
-    main_build_ontology_geometry(
-        "/home/homesOnMaster/sarasteh/Documents/Repositories/convergence/config/config.yaml"
-    )

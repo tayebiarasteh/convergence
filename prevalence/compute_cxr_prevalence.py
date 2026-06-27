@@ -1,20 +1,6 @@
 """
 prevalence/compute_cxr_prevalence.py
-
-Computes per-finding empirical prevalence from the harmonized CXR pool
-manifest for the E6 fracture-law analysis.
-
-For each finding column in the pool manifest (14 canonical + all extended),
-this script counts the fraction of labeled images (finding != NaN) that are
-positive (finding == 1.0). The resulting prevalence is the E6 x-axis regressor:
-alignment per finding ~ log(prevalence), controlling for linear-probe
-separability. A wide prevalence range (rare tail through common findings)
-gives this analysis its statistical power.
-
-Runs after build_cxr_pool.py; reads the pool manifest directly.
-
-Run:
-    python -m prevalence.compute_cxr_prevalence
+Created on May 26, 2026
 
 @author: Soroosh Tayebi Arasteh
 https://github.com/tayebiarasteh
@@ -42,9 +28,7 @@ def main_compute_cxr_prevalence(global_config_path: str) -> str:
             f"Run build_cxr_pool first."
         )
 
-    print(f"[compute_cxr_prevalence] Reading pool manifest: {pool_csv}")
     pool = read_csv_defensively(pool_csv)
-    print(f"  {len(pool)} rows | {pool['dataset'].nunique()} sites")
 
     # Collect all finding columns: canonical 14 + extended
     ext_names = sorted({name for emap in EXTENDED_MAPS.values()
@@ -87,13 +71,4 @@ def main_compute_cxr_prevalence(global_config_path: str) -> str:
     os.makedirs(os.path.dirname(out_csv), exist_ok=True)
     out.to_csv(out_csv, index=False)
 
-    print(f"\n[compute_cxr_prevalence] Results ({len(out)} findings) -> {out_csv}")
-    print(out[["finding", "vocabulary", "n_labeled",
-               "n_positive", "prevalence"]].to_string(index=False))
     return out_csv
-
-
-if __name__ == "__main__":
-    main_compute_cxr_prevalence(
-        "/home/homesOnMaster/sarasteh/Documents/Repositories/convergence/config/config.yaml"
-    )
