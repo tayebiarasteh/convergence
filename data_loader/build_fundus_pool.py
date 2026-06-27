@@ -1,20 +1,6 @@
 """
 data_loader/build_fundus_pool.py
-
-Builds the fundus embedding-pool manifest from APTOS-2019 and Messidor-2.
-
-Both sources provide referable DR (diabetic retinopathy) grades. Binary
-presence of referable DR (grade >= referable_dr_min) is stored as the
-primary label. Images are already preprocessed to 224px under
-preprocessed224/<source_tag>/. No pixel work is performed here.
-
-The fundus pool anchors the cross-modality specialist convergence arm:
-RETFound (fundus-specialist) is expected to converge with other medical
-encoders on fundus content more than general encoders converge across
-unrelated modalities (derm, mammo).
-
-Run:
-    python -m data_loader.build_fundus_pool
+Created on May 25, 2026
 
 @author: Soroosh Tayebi Arasteh
 https://github.com/tayebiarasteh
@@ -83,7 +69,6 @@ def _build_aptos(fcfg: dict, scfg: dict, image_root: str,
         "dr_grade":     df["_grade"].values,
         "source_tag":   source_tag,
     })
-    print(f"[build_fundus_pool/aptos] {len(rows)} rows.")
     return rows.reset_index(drop=True)
 
 
@@ -134,7 +119,6 @@ def _build_messidor(fcfg: dict, scfg: dict, image_root: str,
         "dr_grade":     df["_grade"].values,
         "source_tag":   source_tag,
     })
-    print(f"[build_fundus_pool/messidor] {len(rows)} rows.")
     return rows.reset_index(drop=True)
 
 
@@ -172,11 +156,4 @@ def main_build_fundus_pool(global_config_path: str) -> str:
 
     os.makedirs(os.path.dirname(out_csv), exist_ok=True)
     pool.to_csv(out_csv, index=False)
-    print(f"[build_fundus_pool] {len(pool)} total rows -> {out_csv}")
     return out_csv
-
-
-if __name__ == "__main__":
-    main_build_fundus_pool(
-        "/home/homesOnMaster/sarasteh/Documents/Repositories/convergence/config/config.yaml"
-    )

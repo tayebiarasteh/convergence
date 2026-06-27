@@ -1,11 +1,6 @@
 """
 data_loader/cxr_embedding_loader.py
-
-CXR embedding loader for all six sites in the convergence pool.
-
-_resolve_path delegates entirely to cxr_harmonization.resolve_cxr_image_path
-so path logic lives in exactly one place and is guaranteed consistent with the
-pool builder.
+Created on May 25, 2026
 
 @author: Soroosh Tayebi Arasteh
 https://github.com/tayebiarasteh
@@ -19,15 +14,6 @@ from data_loader.cxr_harmonization import resolve_cxr_image_path
 
 
 class CXREmbeddingDataset(BaseEmbeddingDataset):
-    """Loads CXR images from the pool manifest for embedding extraction.
-
-    Args (additional to BaseEmbeddingDataset):
-        site_roots : dict mapping dataset key -> image_root. If None, roots are
-                     read from Convergence.cxr.sites.<dataset>.image_root in
-                     config. Passing site_roots explicitly allows the caller to
-                     override roots without touching config, which is useful for
-                     cross-site transfer experiments in E7.
-    """
 
     def __init__(
         self,
@@ -51,13 +37,17 @@ class CXREmbeddingDataset(BaseEmbeddingDataset):
                 f"[CXREmbeddingDataset] No image_root for dataset '{dataset}'. "
                 f"Known datasets: {list(self._roots.keys())}"
             )
+        # image_subdir may legitimately be 0 (falsy), so test for NaN/empty
+        # explicitly rather than truthiness. The resolver handles the float->int
+        # normalization (e.g. '1.0' -> '1').
+        raw_subdir = row.get("image_subdir", None)
+        subdir_str = str(raw_subdir) if raw_subdir is not None else ""
+        subdir = None if subdir_str.lower() in ("", "nan", "none") else subdir_str
         return resolve_cxr_image_path(
             dataset=dataset,
             image_root=root,
             image_key=str(row.get("image_key", "")),
             resolution=self.resolution,
             split=str(row.get("split", "")) if row.get("split") else None,
-            image_subdir=str(row["image_subdir"])
-            if row.get("image_subdir") and str(row.get("image_subdir")) != "nan"
-            else None,
+            image_subdir=subdir,
         )

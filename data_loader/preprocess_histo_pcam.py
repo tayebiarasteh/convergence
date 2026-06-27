@@ -1,23 +1,6 @@
 """
 data_loader/preprocess_histo_pcam.py
-
-One-time pixel preprocessing for PatchCamelyon (PCam).
-
-PCam ships as HDF5 tensors, not image files, so its patches must be materialized
-to PNG on disk before any encoder can read them. This is the only histopathology
-source that needs a pixel pass: NCT-CRC-HE-100K and CRC-VAL-HE-7K are already
-224px tif files on disk, and Quilt-1M images are read by each encoder's own
-processor, so both are handled at build time rather than here.
-
-This script extracts every patch of the available PCam split (test) to
-    <h5_dir>/<patches_subdir>/pcam_<split>_<idx>.png
-resized to the configured resolution. It is resumable: a patch whose PNG already
-exists is skipped, so an interrupted run or a partial extraction from earlier
-work is simply completed rather than redone. Labels are NOT written here; the
-histo pool builder reads them from the y H5 and samples independently.
-
-Run:
-    python -m data_loader.preprocess_histo_pcam
+Created on May 25, 2026
 
 @author: Soroosh Tayebi Arasteh
 https://github.com/tayebiarasteh
@@ -39,10 +22,6 @@ def _select_indices(
     cap_per_class: Optional[int],
     seed: int,
 ) -> np.ndarray:
-    """Return the patch indices to extract. With no cap, every patch is
-    extracted (a clean superset the builder can sample from freely). With a
-    per-class cap, an equal number of tumor and non-tumor indices are drawn so
-    the materialized superset stays class-balanced."""
     if cap_per_class is None:
         return np.arange(len(y))
     rng = np.random.default_rng(int(seed))
@@ -92,7 +71,7 @@ def main_preprocess_pcam(global_config_path: str):
     with h5py.File(x_path, "r") as fx:
         X = fx["x"]   # (N, 96, 96, 3) uint8
         for i in tqdm(indices.tolist(), unit="patch"):
-            out_path = os.path.join(patch_dir, f"pcam_{split}_{i}.png")
+            out_path = os.path.join(patch_dir, f"pcam_{split}_{i:05d}.png")
             if os.path.exists(out_path):
                 skipped += 1
                 continue
@@ -107,12 +86,3 @@ def main_preprocess_pcam(global_config_path: str):
                 errors += 1
                 if errors <= 10:
                     print(f"[preprocess_pcam] error at idx {i}: {e}")
-
-    print(f"[preprocess_pcam] done. written={written} skipped={skipped} "
-          f"errors={errors}.")
-
-
-if __name__ == "__main__":
-    main_preprocess_pcam(
-        "/home/homesOnMaster/sarasteh/Documents/Repositories/convergence/config/config.yaml"
-    )

@@ -1,22 +1,6 @@
 """
 data_loader/build_mammo_pool.py
-
-Builds the mammography embedding-pool manifest from VinDr-Mammo for the
-discriminant control experiment.
-
-Role: alongside derm, mammo anchors the cross-modality alignment floor.
-General encoders fed CXR vs mammo image pairs should produce lower alignment
-than specialist CXR encoders produce among themselves, confirming that
-convergence is domain-specific, not a generic property of large models.
-
-Finding annotations: finding_annotations.csv has one row per finding per
-image; images with no pathology are labeled "No Finding". This builder
-pivots to one row per image with binary presence columns for each usable
-finding. Multi-finding images contribute 1 to each present finding column.
-Only the largest box is kept per (image_id, finding) before pivoting.
-
-Run:
-    python -m data_loader.build_mammo_pool
+Created on May 25, 2026
 
 @author: Soroosh Tayebi Arasteh
 https://github.com/tayebiarasteh
@@ -77,20 +61,15 @@ def main_build_mammo_pool(global_config_path: str) -> str:
 
     ann = read_csv_defensively(findings_csv)
     ann["_cats"] = ann["finding_categories"].apply(_parse_categories)
-    print(f"[build_mammo_pool] {len(ann)} annotation rows loaded.")
 
-    # Build per-image presence pivot
-    # Step 1: get all unique images with their study_id
     images = ann.drop_duplicates("image_id")[["image_id", "study_id"]].copy()
 
-    # Step 2: for each image and each usable finding, determine presence
     for cat_str, finding in category_map.items():
         if finding not in usable:
             continue
         pos_ids = ann[ann["_cats"].apply(lambda cs: cat_str in cs)]["image_id"]
         images[finding] = images["image_id"].isin(pos_ids).astype(float)
 
-    # Step 3: add no_finding column
     no_finding_ids = ann[ann["_cats"].apply(
         lambda cs: cs == ["No Finding"]
     )]["image_id"]
@@ -112,7 +91,6 @@ def main_build_mammo_pool(global_config_path: str) -> str:
     total_cap = cap * len(usable)
     if len(images) > total_cap:
         images = images.sample(n=total_cap, random_state=seed)
-    print(f"[build_mammo_pool] {len(images)} images after cap.")
 
     finding_cols = [f for f in list(category_map.values()) + ["no_finding"]
                     if f in images.columns]
@@ -133,14 +111,7 @@ def main_build_mammo_pool(global_config_path: str) -> str:
 
     os.makedirs(os.path.dirname(out_csv), exist_ok=True)
     pool.to_csv(out_csv, index=False)
-    print(f"[build_mammo_pool] {len(pool)} rows -> {out_csv}")
     for f in finding_cols:
         n_pos = int((pool[f] == 1).sum())
         print(f"  {f}: {n_pos} positive")
     return out_csv
-
-
-if __name__ == "__main__":
-    main_build_mammo_pool(
-        "/home/homesOnMaster/sarasteh/Documents/Repositories/convergence/config/config.yaml"
-    )

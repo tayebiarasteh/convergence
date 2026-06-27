@@ -1,19 +1,6 @@
 """
 data_loader/build_utils.py
-
-Shared construction helpers for every pool builder in the convergence project.
-
-This project compares the representations of many independently trained image
-encoders on a shared set of images. The data layer therefore produces flat
-"embedding-pool" manifests: one row per image, carrying the fields needed to
-(a) resolve the image on disk at a requested resolution, (b) attach harmonized
-finding labels and demographics, and (c) thread a stable case_id through every
-downstream output (embeddings, alignment scores, fracture tables).
-
-There is deliberately no swap / occlusion / prompt machinery here; those belong
-to behavioral-probing pipelines, not to representation alignment. The helpers
-below cover only manifest assembly: defensive IO, deterministic sampling,
-per-group capping, and presence-label balancing.
+Created on May 25, 2026
 
 @author: Soroosh Tayebi Arasteh
 https://github.com/tayebiarasteh
@@ -25,17 +12,6 @@ import numpy as np
 import pandas as pd
 
 
-# ----- Canonical embedding-manifest schema ---------------------------------
-# Core columns are modality-agnostic and present in every pool manifest. Label
-# and metadata columns are appended per modality (the builder passes their
-# names to finalize_manifest so column order stays deterministic).
-#
-#   case_id        globally unique, stable id threaded through all outputs
-#   dataset        source dataset key (e.g. mimic, padchest, pcam, nct_crc)
-#   modality       imaging modality (cxr, histo, fundus, ...)
-#   split          original dataset split (train/valid/test) where defined
-#   image_key      the raw path token the per-dataset resolver needs
-#   image_subdir   optional secondary path token (e.g. PadChest ImageDir); NaN if unused
 CORE_COLUMNS: List[str] = [
     "case_id", "dataset", "modality", "split", "image_key", "image_subdir",
 ]
@@ -46,12 +22,6 @@ def finalize_manifest(
     label_cols: Sequence[str] = (),
     meta_cols: Sequence[str] = (),
 ) -> pd.DataFrame:
-    """Order columns as CORE + metadata + labels + any remaining, creating any
-    missing core/declared columns as NaN so every manifest is schema-uniform.
-
-    label_cols and meta_cols are declared explicitly by the builder so the
-    column order of a manifest never depends on dict insertion accidents.
-    """
     df = df.copy()
     declared = list(CORE_COLUMNS) + list(meta_cols) + list(label_cols)
     for col in declared:
@@ -61,7 +31,6 @@ def finalize_manifest(
     return df[declared + rest]
 
 
-# ----- Defensive IO ---------------------------------------------------------
 
 def read_csv_defensively(path: str, **kwargs) -> pd.DataFrame:
     """Master lists may come from heterogeneous exporters; try UTF-8 then
@@ -74,7 +43,6 @@ def read_csv_defensively(path: str, **kwargs) -> pd.DataFrame:
         return pd.read_csv(path, encoding="latin-1", **kwargs)
 
 
-# ----- Determinism ----------------------------------------------------------
 
 def new_rng(seed: int) -> np.random.Generator:
     """Single source of data-sampling randomness. Inferential statistics use a
@@ -82,7 +50,6 @@ def new_rng(seed: int) -> np.random.Generator:
     return np.random.default_rng(int(seed))
 
 
-# ----- Label policy ---------------------------------------------------------
 
 def binarize_presence(
     value,
@@ -90,17 +57,6 @@ def binarize_presence(
     negative_codes: Sequence[int] = (0,),
     exclude_codes: Sequence[int] = (),
 ) -> float:
-    """Map a raw label cell to a binary presence value.
-
-    Returns 1.0 for positive, 0.0 for an explicit negative, and np.nan for
-    cells that are missing, uncertain, or otherwise outside the declared codes
-    (so "not labeled by this source" never masquerades as an explicit negative).
-
-    The CheXpert-style integer convention (1 positive, 0 negative, 2 uncertain,
-    3 not-mentioned) is handled by passing negative_codes=(0, 3) and
-    exclude_codes=(2,) for an uncertain-as-missing policy, or negative_codes=
-    (0, 2, 3) for an uncertain-as-negative policy.
-    """
     if pd.isna(value):
         return np.nan
     try:
@@ -116,7 +72,6 @@ def binarize_presence(
     return np.nan
 
 
-# ----- Sampling -------------------------------------------------------------
 
 def cap_per_group(
     df: pd.DataFrame,
@@ -141,9 +96,6 @@ def stratified_sample(
     n_per_stratum: int,
     seed: int = 42,
 ) -> pd.DataFrame:
-    """Take up to `n_per_stratum` rows from each unique combination of
-    strata_cols. Used to build size-bounded shared pools that stay balanced
-    across sites and views without over-representing the largest source."""
     parts = []
     for _, grp in df.groupby(list(strata_cols), sort=False):
         parts.append(
@@ -177,12 +129,8 @@ def balanced_presence_sample(
     return out.reset_index(drop=True)
 
 
-# ----- Case-id helpers ------------------------------------------------------
 
 def make_case_ids(dataset: str, keys: Sequence[str]) -> List[str]:
-    """Deterministic, collision-resistant ids of the form
-    '<dataset>__<key>'. The key should already be unique within the dataset
-    (a dicom_id, image_id, or relative path with separators normalized)."""
     out = []
     for k in keys:
         norm = str(k).strip().replace("/", "_").replace(" ", "_")

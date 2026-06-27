@@ -1,26 +1,6 @@
 """
 data_loader/cxr_harmonization.py
-
-Cross-site CXR harmonization for the convergence project.
-
-Six independently curated chest-radiograph datasets are pooled into one shared
-manifest. They disagree on label vocabulary, label encoding, view naming, and
-on-disk path layout. This module is the single place that reconciles those
-differences, so both the pool builder and the embedding loader resolve images
-and labels identically.
-
-It defines three things:
-  1. CANONICAL_CXR_FINDINGS  the 14-way target vocabulary every site maps into.
-  2. Per-site label maps      native column -> canonical finding, plus the
-                              extended (rare-tail) findings a site contributes
-                              that have no canonical slot, and the per-site
-                              raw-label decoding policy.
-  3. resolve_cxr_image_path   native path token(s) -> absolute on-disk path at a
-                              requested resolution.
-
-Machine-specific roots and master-list filenames live in config under
-Convergence.cxr.sites; the structural logic (path scheme, view filter, label
-decoding) lives here because it is stable across machines.
+Created on May 25, 2026
 
 @author: Soroosh Tayebi Arasteh
 https://github.com/tayebiarasteh
@@ -32,10 +12,6 @@ from typing import Dict, List, Optional
 from data_loader.build_utils import binarize_presence
 
 
-# ----- Canonical vocabulary -------------------------------------------------
-# The 14 CheXpert findings. Every site maps a subset of these; sites also
-# contribute extended findings (below) used only for the rare-tail fracture
-# analysis, never for cross-site label agreement.
 CANONICAL_CXR_FINDINGS: List[str] = [
     "atelectasis", "cardiomegaly", "consolidation", "edema",
     "enlarged_cardiomediastinum", "fracture", "lung_lesion", "lung_opacity",
@@ -43,11 +19,6 @@ CANONICAL_CXR_FINDINGS: List[str] = [
     "pneumothorax", "support_devices",
 ]
 
-
-# ----- Per-site native -> canonical maps ------------------------------------
-# Keys are the exact column names in each site's master list; values are the
-# canonical finding. Columns not listed are either ignored or handled as
-# extended findings (EXTENDED_MAPS).
 
 MIMIC_LABEL_MAP: Dict[str, str] = {
     "atelectasis": "atelectasis",
@@ -121,9 +92,6 @@ VINDR_PCXR_LABEL_MAP: Dict[str, str] = {
 }
 
 
-# ----- Extended (rare-tail) findings ----------------------------------------
-# Native findings with no canonical slot, preserved under a normalized name for
-# the E6 fracture-law rare tail. They are NOT used for cross-site agreement.
 EXTENDED_MAPS: Dict[str, Dict[str, str]] = {
     "vindr_cxr": {
         "Aortic enlargement": "aortic_enlargement",
@@ -181,11 +149,6 @@ EXTENDED_MAPS: Dict[str, Dict[str, str]] = {
 }
 
 
-# ----- Per-site raw-label decoding ------------------------------------------
-# MIMIC and CheXpert use the CheXpert labeler integers (1 positive, 0 explicit
-# negative, 2 uncertain, 3 not-mentioned). Default policy: uncertain (2) is
-# excluded (NaN), not-mentioned (3) is treated as negative. The other four sites
-# carry already-binary 0/1 columns.
 _CHEXPERT_POLICY = dict(positive_code=1, negative_codes=(0, 3), exclude_codes=(2,))
 _BINARY_POLICY = dict(positive_code=1, negative_codes=(0,), exclude_codes=())
 
@@ -209,14 +172,6 @@ LABEL_MAPS: Dict[str, Dict[str, str]] = {
 
 
 def decode_site_labels(site: str, row: dict) -> Dict[str, float]:
-    """Return {canonical_finding: presence_value} for one master-list row.
-
-    A canonical finding receives 1.0/0.0 if any native column mapping to it is
-    decodable, NaN if the site does not label it. When several native columns
-    map to one canonical finding (e.g. NIH nodule and mass -> lung_lesion), the
-    canonical value is positive if any maps positive, else negative if any maps
-    negative, else NaN.
-    """
     policy = LABEL_POLICY[site]
     out: Dict[str, float] = {f: float("nan") for f in CANONICAL_CXR_FINDINGS}
     for native_col, canonical in LABEL_MAPS[site].items():
@@ -243,11 +198,6 @@ def decode_extended_labels(site: str, row: dict) -> Dict[str, float]:
     return out
 
 
-# ----- Path resolution ------------------------------------------------------
-# Each site stores a different raw path token. The pool builder records that
-# token as image_key (plus image_subdir for PadChest) and the dataset key; both
-# builder existence-checks and the loader call resolve_cxr_image_path so the
-# disk path is computed in exactly one place.
 
 def _res_dirname(resolution: int) -> str:
     """Preprocessed sibling-folder name for a resolution. 224 -> preprocessed224;
@@ -269,12 +219,6 @@ def resolve_cxr_image_path(
     split: Optional[str] = None,
     image_subdir: Optional[str] = None,
 ) -> str:
-    """Absolute on-disk path for one CXR case.
-
-    image_root is the per-site root from config; image_key and image_subdir are
-    the raw tokens stored in the manifest; split is needed only by the two
-    split-foldered VinDr sets.
-    """
     res = _res_dirname(resolution)
     key = str(image_key)
 
@@ -294,8 +238,15 @@ def resolve_cxr_image_path(
         return os.path.join(image_root, "CXR14", res, key)
 
     if dataset == "padchest":
-        # <res>/<ImageDir>/<ImageID>.
-        sub = "" if image_subdir is None else str(image_subdir)
+        if image_subdir is None or str(image_subdir) in ("", "nan", "None"):
+            sub = ""
+        else:
+            sub_raw = str(image_subdir)
+            try:
+                f = float(sub_raw)
+                sub = str(int(f)) if f == int(f) else sub_raw
+            except (ValueError, TypeError):
+                sub = sub_raw
         return os.path.join(image_root, res, sub, key)
 
     if dataset in ("vindr_cxr", "vindr_pcxr"):
@@ -306,8 +257,6 @@ def resolve_cxr_image_path(
     raise KeyError(f"unknown cxr dataset '{dataset}'")
 
 
-# Stable view-filter policy per site (frontal only). Sites without a usable view
-# column are kept whole.
 VIEW_KEEP: Dict[str, Optional[List[str]]] = {
     "mimic": ["PA", "AP"],
     "chexpert": ["Frontal"],

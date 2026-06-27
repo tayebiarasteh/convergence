@@ -1,16 +1,6 @@
 """
 data_loader/base_embedding_loader.py
-
-Base PyTorch Dataset for embedding extraction.
-
-Every encoder in the panel embeds images through this interface. Each
-__getitem__ returns a dict with case_id, a PIL RGB image, and lightweight
-metadata. The encoder wrapper applies its own preprocessing (resize, normalize,
-tokenize) on the image before the forward pass; this loader stays format-agnostic.
-
-Subclasses override only _resolve_path(row) to compute the absolute disk path
-from the manifest fields (image_key, image_subdir, split, dataset). Everything
-else -- manifest loading, error handling, collation -- lives here exactly once.
+Created on May 25, 2026
 
 @author: Soroosh Tayebi Arasteh
 https://github.com/tayebiarasteh
@@ -56,7 +46,6 @@ class BaseEmbeddingDataset(Dataset):
             f"resolution={resolution} | {len(self.records)} cases"
         )
 
-    # ----- Subclass hook ----------------------------------------------------
 
     def _resolve_path(self, row: Dict[str, Any]) -> str:
         """Return absolute on-disk path for this manifest row.
@@ -65,7 +54,6 @@ class BaseEmbeddingDataset(Dataset):
             f"{type(self).__name__} must implement _resolve_path(row)."
         )
 
-    # ----- Dataset interface ------------------------------------------------
 
     def __len__(self) -> int:
         return len(self.records)
@@ -107,12 +95,8 @@ def _is_nan(v: Any) -> bool:
         return False
 
 
-# ----- Collate --------------------------------------------------------------
 
 def embedding_collate_fn(batch: List[Dict[str, Any]]) -> Dict[str, Any]:
-    """Collate for DataLoader. Images are left as a list of PIL Images because
-    each encoder wrapper applies its own processor (normalization, tokenization).
-    The embedding stage does not use torchvision transforms here."""
     out: Dict[str, Any] = {
         "case_ids":  [b["case_id"]  for b in batch],
         "images":    [b["image"]    for b in batch],

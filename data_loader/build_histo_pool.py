@@ -1,30 +1,6 @@
 """
 data_loader/build_histo_pool.py
-
-Builds the histopathology embedding-pool manifest from two sources:
-
-  PCam (PatchCamelyon, test split)
-    32,768 patches at 96x96 in HDF5, extracted to PNG by
-    preprocess_histo_pcam.py. This builder reads the label H5 and the
-    existing PNG files; it does not re-extract patches. If a PNG is missing,
-    the row is dropped with a warning.
-
-  NCT-CRC-HE-100K + CRC-VAL-HE-7K
-    100k training patches and 7k validation patches in 9 tissue classes.
-    Patches are already 224x224 TIF, read by PIL without preprocessing.
-    The class folder name IS the label. This builder scans the folder tree
-    and emits one row per patch.
-
-Design:
-  - Per-class cap (cases_per_class) is applied independently to each source
-    and each class to keep the pool balanced and bounded.
-  - The two sources are concatenated into a single manifest so the embedding
-    stage runs one pass over both.
-  - NCT-CRC labels are also written to a standalone nct_crc_labels.csv for
-    the E5 controlled-training data loaders.
-
-Run after preprocess_histo_pcam.py:
-    python -m data_loader.build_histo_pool
+Created on May 25, 2026
 
 @author: Soroosh Tayebi Arasteh
 https://github.com/tayebiarasteh
@@ -49,7 +25,6 @@ _LABEL_COLS_HISTO = ["tumor_label"]       # PCam: 1 = tumor, 0 = no tumor
 _META_COLS_HISTO  = ["tissue_class"]      # NCT-CRC: class name
 
 
-# ----- PCam -----------------------------------------------------------------
 
 def _build_pcam(hcfg: dict, pcfg: dict, cap: int, seed: int) -> pd.DataFrame:
     h5_dir    = pcfg["h5_dir"]
@@ -62,14 +37,13 @@ def _build_pcam(hcfg: dict, pcfg: dict, cap: int, seed: int) -> pd.DataFrame:
         print(f"[build_histo_pool/pcam] Label H5 not found: {y_path}; skipping PCam.")
         return pd.DataFrame()
 
-    print(f"[build_histo_pool/pcam] Reading labels from {y_path}")
     with h5py.File(y_path, "r") as fy:
         y = np.array(fy["y"]).reshape(-1).astype(int)
 
     rows: List[dict] = []
     missing = 0
     for idx, label in enumerate(y):
-        fname    = f"pcam_{split}_{idx}.png"
+        fname    = f"pcam_{split}_{idx:05d}.png"
         abs_path = os.path.join(patch_dir, fname)
         if not os.path.exists(abs_path):
             missing += 1
@@ -100,8 +74,6 @@ def _build_pcam(hcfg: dict, pcfg: dict, cap: int, seed: int) -> pd.DataFrame:
           f"neg={int((df['tumor_label']==0).sum())})")
     return df
 
-
-# ----- NCT-CRC --------------------------------------------------------------
 
 def _build_nct_crc(hcfg: dict, ncfg: dict, cap: int, seed: int) -> pd.DataFrame:
     root        = ncfg["root"]
@@ -142,12 +114,9 @@ def _build_nct_crc(hcfg: dict, ncfg: dict, cap: int, seed: int) -> pd.DataFrame:
 
     df = pd.DataFrame(rows)
     df = cap_per_group(df, "tissue_class", cap=cap, seed=seed)
-    print(f"[build_histo_pool/nct_crc] {len(df)} rows across "
-          f"{df['tissue_class'].nunique()} tissue classes.")
     return df
 
 
-# ----- Orchestrator ---------------------------------------------------------
 
 def main_build_histo_pool(global_config_path: str) -> str:
     params = read_config(global_config_path)
@@ -158,7 +127,6 @@ def main_build_histo_pool(global_config_path: str) -> str:
     out_csv       = hcfg["pool_manifest_csv"]
     labels_csv    = hcfg["nct_crc_labels_csv"]
 
-    print("[build_histo_pool] Building histopathology pool manifest.")
 
     parts: List[pd.DataFrame] = []
 
@@ -189,13 +157,6 @@ def main_build_histo_pool(global_config_path: str) -> str:
 
     os.makedirs(os.path.dirname(out_csv), exist_ok=True)
     pool.to_csv(out_csv, index=False)
-    print(f"[build_histo_pool] Pool manifest -> {out_csv}")
     for ds, grp in pool.groupby("dataset"):
         print(f"  {ds}: {len(grp)} rows")
     return out_csv
-
-
-if __name__ == "__main__":
-    main_build_histo_pool(
-        "/home/homesOnMaster/sarasteh/Documents/Repositories/convergence/config/config.yaml"
-    )

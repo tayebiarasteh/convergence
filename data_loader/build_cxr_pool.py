@@ -1,34 +1,6 @@
 """
 data_loader/build_cxr_pool.py
-
-Builds the shared CXR embedding-pool manifest from six independently curated
-labeled datasets. The manifest is the backbone of the convergence project: every
-image encoder embeds the same set of images, and every downstream experiment
-(alignment, fracture, ontology, universal probe, drift detector) reads from
-this manifest or a sampled subset of it.
-
-Design decisions:
-  - All frontal images from all six sites are included (no sampling at build
-    time). Experiment-specific subsets are drawn at analysis time to preserve
-    maximum flexibility and statistical power.
-  - Labels are harmonized into the 14-way canonical CheXpert vocabulary using
-    vectorized decoding (1.0 positive, 0.0 explicit negative, NaN unlabeled or
-    uncertain). Sites that do not label a finding contribute NaN for it, never
-    a spurious negative.
-  - Extended (rare-tail) findings from each site are preserved as additional
-    float columns for the E6 fracture-law analysis.
-  - Demographics (age, sex, race, ethnicity, insurance) are attached where
-    available. CheXpert gets race/ethnicity/insurance from CheXpert Plus.
-  - Image existence is verified at 224 px. Rows whose preprocessed file is
-    missing are dropped with a warning so the manifest is immediately usable.
-  - The report_rel_path column (MIMIC only) is stored for the E2 paired-report
-    builder, which reads it from this manifest rather than re-reading the
-    MIMIC master list.
-
-Output: Convergence.cxr.pool_manifest_csv
-
-Run:
-    python -m data_loader.build_cxr_pool
+Created on May 25, 2026
 
 @author: Soroosh Tayebi Arasteh
 https://github.com/tayebiarasteh
@@ -51,7 +23,6 @@ from data_loader.cxr_harmonization import (
 )
 
 
-# Metadata columns appended after core columns in the output manifest.
 _META_COLS: List[str] = [
     "subject_id", "study_id", "age", "sex",
     "race", "ethnicity", "insurance",
@@ -59,7 +30,6 @@ _META_COLS: List[str] = [
 ]
 
 
-# ----- Vectorized label decoding --------------------------------------------
 
 def _binarize_series(
     s: pd.Series,
@@ -67,11 +37,6 @@ def _binarize_series(
     negatives: set,
     excludes: set,
 ) -> pd.Series:
-    """Vectorized binarize_presence for a numeric label column.
-
-    Returns float series with 1.0 (positive), 0.0 (negative), or NaN
-    (missing, uncertain, or exclude-coded). Uses pd.to_numeric so non-numeric
-    cells are silently coerced to NaN rather than raising."""
     num = pd.to_numeric(s, errors="coerce")
     out = pd.Series(np.nan, index=s.index, dtype=float)
     out[num == positive] = 1.0
@@ -82,13 +47,6 @@ def _binarize_series(
 
 
 def _decode_canonical_labels(site: str, df: pd.DataFrame) -> pd.DataFrame:
-    """Vectorized canonical label decoding. Returns a DataFrame with one column
-    per canonical finding aligned to df's index.
-
-    When multiple native columns map to one canonical (e.g. NIH nodule + mass
-    -> lung_lesion), the canonical is 1.0 if any native column is positive,
-    0.0 if none is positive but at least one is negative, else NaN. This is
-    achieved by taking the column-wise max (1 > 0 > NaN with skipna=True)."""
     policy = LABEL_POLICY[site]
     pos = int(policy["positive_code"])
     negs = {int(c) for c in policy["negative_codes"]}
@@ -111,9 +69,6 @@ def _decode_canonical_labels(site: str, df: pd.DataFrame) -> pd.DataFrame:
 
 
 def _decode_extended_labels(site: str, df: pd.DataFrame) -> pd.DataFrame:
-    """Vectorized extended-finding decoding. Returns a DataFrame with one column
-    per extended finding available for this site. Empty for MIMIC and CheXpert,
-    which have no non-canonical findings."""
     emap = EXTENDED_MAPS.get(site, {})
     if not emap:
         return pd.DataFrame(index=df.index)
@@ -131,14 +86,8 @@ def _decode_extended_labels(site: str, df: pd.DataFrame) -> pd.DataFrame:
     return pd.DataFrame(result, index=df.index)
 
 
-# ----- Case-id construction -------------------------------------------------
 
 def _case_id(site: str, image_key: str) -> str:
-    """Construct a stable, short, globally unique case_id.
-
-    The key is derived from the part of image_key that is unique within the
-    site: the dicom stem for MIMIC, the normalized relative path for CheXpert,
-    and the raw image_id for the other four sites."""
     k = str(image_key).strip()
     if site == "mimic":
         # stem of the filename: 02aa804e-...-4e384014
@@ -161,7 +110,6 @@ def _case_id(site: str, image_key: str) -> str:
     return f"{site}__{k}"
 
 
-# ----- Per-site view filtering ----------------------------------------------
 
 def _apply_view_filter(df: pd.DataFrame, site: str) -> pd.DataFrame:
     keep = VIEW_KEEP[site]
@@ -174,7 +122,6 @@ def _apply_view_filter(df: pd.DataFrame, site: str) -> pd.DataFrame:
     return df
 
 
-# ----- Image-existence verification -----------------------------------------
 
 def _verify_images(
     df: pd.DataFrame,
@@ -182,11 +129,6 @@ def _verify_images(
     image_root: str,
     resolution: int = 224,
 ) -> pd.DataFrame:
-    """Drop rows whose preprocessed image file is missing. Uses the same
-    resolve_cxr_image_path logic as the embedding loader so missing-file
-    detection is exact. Receives the assembled 'out' DataFrame which uses
-    canonical column names (image_key, image_subdir, split), not the raw
-    site-specific column names."""
 
     def _exists(row: pd.Series) -> bool:
         try:
@@ -212,7 +154,6 @@ def _verify_images(
     return df[mask].copy()
 
 
-# ----- CheXpert Plus join ---------------------------------------------------
 
 def _join_chexpert_plus(df: pd.DataFrame, plus_cfg: dict) -> pd.DataFrame:
     """Left-join race, ethnicity, insurance from CheXpert Plus onto the
@@ -238,8 +179,6 @@ def _join_chexpert_plus(df: pd.DataFrame, plus_cfg: dict) -> pd.DataFrame:
         plus_cfg.get("ethnicity_col", "ethnicity"): "ethnicity",
         plus_cfg.get("insurance_col", "insurance_type"): "insurance",
     })
-    # CheXpert Plus may have multiple rows per image (one per study order);
-    # keep the first occurrence per jpg_rel_path.
     plus = plus.drop_duplicates(subset=[join_col])
 
     df = df.merge(plus[[join_col, "race", "ethnicity", "insurance"]],
@@ -249,7 +188,6 @@ def _join_chexpert_plus(df: pd.DataFrame, plus_cfg: dict) -> pd.DataFrame:
     return df
 
 
-# ----- Per-site metadata extraction -----------------------------------------
 
 def _extract_metadata(site: str, df: pd.DataFrame) -> pd.DataFrame:
     """Extract the standardized metadata columns from each site's master list.
@@ -274,13 +212,17 @@ def _extract_metadata(site: str, df: pd.DataFrame) -> pd.DataFrame:
         }, index=df.index)
 
     if site == "chexpert":
-        # view: use AP_PA (PA/AP) rather than the coarser 'Frontal'/'Lateral'
+        # CheXpert gender column uses 'Female'/'Male'; harmonize to 'F'/'M'
+        sex_raw = _col("gender")
+        sex_s   = sex_raw.map({"Female": "F", "Male": "M"}).where(
+                      sex_raw.isin(["Female", "Male"]), sex_raw
+                  )
         view_s = _col("AP_PA").fillna(_col("view"))
         return pd.DataFrame({
             "subject_id":    _col("subject_id").astype(str),
             "study_id":      np.nan,
             "age":           pd.to_numeric(_col("age"), errors="coerce"),
-            "sex":           _col("gender"),
+            "sex":           sex_s,
             "race":          _col("race"),
             "ethnicity":     _col("ethnicity"),
             "insurance":     _col("insurance"),
@@ -289,10 +231,13 @@ def _extract_metadata(site: str, df: pd.DataFrame) -> pd.DataFrame:
         }, index=df.index)
 
     if site == "vindr_cxr":
+        # age=0 is a known VinDr-CXR encoding for missing/unavailable age; treat as NaN
+        age_raw = pd.to_numeric(_col("age"), errors="coerce")
+        age_raw = age_raw.replace(0.0, np.nan)
         return pd.DataFrame({
             "subject_id":    np.nan,
             "study_id":      np.nan,
-            "age":           pd.to_numeric(_col("age"), errors="coerce"),
+            "age":           age_raw,
             "sex":           _col("gender"),
             "race":          np.nan, "ethnicity": np.nan, "insurance": np.nan,
             "view":          np.nan,
@@ -333,7 +278,6 @@ def _extract_metadata(site: str, df: pd.DataFrame) -> pd.DataFrame:
     raise ValueError(f"unknown site '{site}'")
 
 
-# ----- Main per-site loader -------------------------------------------------
 
 def _load_site(
     site: str,
@@ -376,7 +320,19 @@ def _load_site(
 
     # Core columns
     key_series   = df[key_col].astype(str)
-    subdir_series = df[subdir_col].astype(str) if subdir_col and subdir_col in df.columns \
+    def _subdir_str(v) -> str:
+        if v is None or (isinstance(v, float) and np.isnan(v)):
+            return np.nan
+        s = str(v)
+        try:
+            f = float(s)
+            if f == int(f):
+                return str(int(f))
+        except (ValueError, TypeError):
+            pass
+        return s
+
+    subdir_series = df[subdir_col].apply(_subdir_str) if subdir_col and subdir_col in df.columns \
                     else pd.Series(np.nan, index=df.index)
 
     core = pd.DataFrame({
@@ -409,7 +365,6 @@ def _load_site(
     return out.reset_index(drop=True)
 
 
-# ----- Orchestrator ---------------------------------------------------------
 
 def main_build_cxr_pool(global_config_path: str) -> str:
     """Build the shared CXR embedding-pool manifest and return its path."""
@@ -420,9 +375,6 @@ def main_build_cxr_pool(global_config_path: str) -> str:
     verify   = bool(cfg_cxr.get("verify_image_exists", True))
     cap      = cfg_cxr.get("cap_per_site_view", None)
     seed     = int(cfg.get("seed", 42))
-
-    print("[build_cxr_pool] Building shared CXR pool manifest.")
-    print(f"  verify_image_exists={verify} | cap_per_site_view={cap}")
 
     site_dfs: List[pd.DataFrame] = []
     for site in CXR_SITES:
@@ -459,16 +411,7 @@ def main_build_cxr_pool(global_config_path: str) -> str:
 
     n_sites = pool["dataset"].nunique()
     n_cases = len(pool)
-    print(f"\n[build_cxr_pool] Pool manifest written -> {out_csv}")
-    print(f"  {n_cases} total cases | {n_sites} sites | "
-          f"{len(CANONICAL_CXR_FINDINGS)} canonical + {len(ext_names)} extended "
-          f"finding columns")
     for site, grp in pool.groupby("dataset"):
         print(f"    {site}: {len(grp)}")
     return out_csv
 
-
-if __name__ == "__main__":
-    main_build_cxr_pool(
-        "/home/homesOnMaster/sarasteh/Documents/Repositories/convergence/config/config.yaml"
-    )

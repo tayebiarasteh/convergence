@@ -1,14 +1,6 @@
 """
 data_loader/preprocess_utils.py
-
-Shared image-resize helper for the reproduction preprocessing scripts.
-
-The chest-radiograph and fundus images used by this project were resized to 224
-and 512 px offline, and those preprocessed trees already exist on the system, so
-the per-modality preprocessing scripts do not run here. They are kept for
-transparency and reproduction: pointed at a raw image tree, they reproduce the
-exact resize convention (LANCZOS to a square target, relative structure
-preserved). This module holds the one resize routine they share.
+Created on May 25, 2026
 
 @author: Soroosh Tayebi Arasteh
 https://github.com/tayebiarasteh
@@ -44,11 +36,6 @@ def resize_tree(
     num_workers: int = 8,
     tag: str = "",
 ) -> None:
-    """Resize every image under raw_root to 224 and 512 px, mirroring the
-    relative directory structure into out_root_224 and out_root_512. Resumable:
-    targets that already exist are skipped, so on a system where the
-    preprocessed trees are already present this is a no-op.
-    """
     if not raw_root or not os.path.isdir(raw_root):
         print(f"[preprocess{tag}] raw root absent or not set ({raw_root}); "
               f"skipping (preprocessed trees already exist).")
@@ -72,7 +59,6 @@ def resize_tree(
         print(f"[preprocess{tag}] nothing to do under {raw_root}.")
         return
 
-    print(f"[preprocess{tag}] resizing {len(jobs)} images under {raw_root}.")
     errors = []
     with ThreadPoolExecutor(max_workers=num_workers) as pool:
         futs = {pool.submit(_resize_one, *j): j[0] for j in jobs}
@@ -80,6 +66,5 @@ def resize_tree(
             r = fut.result()
             if r.startswith("ERROR"):
                 errors.append(r)
-    print(f"[preprocess{tag}] done. errors={len(errors)}")
     for e in errors[:10]:
         print(" ", e)
