@@ -92,8 +92,6 @@ def main_ontology_analysis(global_config_path: str) -> str:
     manifest  = read_csv_defensively(cfg["cxr"]["pool_manifest_csv"])
     findings  = [f for f in CANONICAL_CXR_FINDINGS if f in manifest.columns]
 
-    # The consensus is on a case subsample; load the kept-case indices so finding
-    # positives are located in consensus-row space, not full-manifest space.
     kept_path = os.path.join(cons_dir, "consensus_kept_case_idx.npy")
     kept_idx  = np.load(kept_path) if os.path.exists(kept_path) else None
 
@@ -140,7 +138,7 @@ def main_ontology_analysis(global_config_path: str) -> str:
     triplets_csv = cfg["reader_study"]["triplets_csv"]
     if os.path.exists(triplets_csv):
         _triplet_analysis(triplets_csv, D_cons, findings, out_dir,
-                          cfg, consensus)
+                          cfg, consensus, global_config_path)
 
     return out_dir
 
@@ -152,6 +150,7 @@ def _triplet_analysis(
     out_dir: str,
     cfg: dict,
     consensus: np.ndarray,
+    global_config_path: str,
 ):
     """Predict radiologist triplet judgments from the consensus and each encoder."""
     trips = read_csv_defensively(triplets_csv)
@@ -165,6 +164,7 @@ def _triplet_analysis(
     manifest = read_csv_defensively(cfg["cxr"]["pool_manifest_csv"])
     id_to_idx = {str(cid): i for i, cid in enumerate(manifest["case_id"])}
 
+    cons_dir  = cfg["alignment"]["consensus_dir"]
     kept_path = os.path.join(cons_dir, "consensus_kept_case_idx.npy")
     if os.path.exists(kept_path):
         kept_idx = np.load(kept_path)
@@ -202,7 +202,7 @@ def _triplet_analysis(
     # Per encoder
     emb_dir = cfg["embeddings"]["output_dir"]
     from encoders.image_encoders import list_encoder_names
-    for enc_name in tqdm(list_encoder_names(cfg, roles=["core"]), desc="[E3] per-encoder", unit="enc"):
+    for enc_name in tqdm(list_encoder_names(global_config_path, roles=["core"]), desc="[E3] per-encoder", unit="enc"):
         npz_path = os.path.join(emb_dir, enc_name, "cxr_pool.npz")
         if not os.path.exists(npz_path):
             continue
