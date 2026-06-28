@@ -18,13 +18,19 @@ from Inference.report_utils import report_metric, report_auroc, add_fdr
 from Inference.stats_utils import bootstrap_proportion, N_BOOT, BOOT_SEED
 
 
+
 def _read_csv(path: str) -> Optional[pd.DataFrame]:
     if not os.path.exists(path):
         return None
-    try:
-        return pd.read_csv(path, encoding="utf-8")
-    except UnicodeDecodeError:
-        return pd.read_csv(path, encoding="latin-1")
+    for enc in ("utf-8", "latin-1"):
+        try:
+            with open(path, "r", encoding=enc) as fh:
+                first = fh.readline()
+            sep = ";" if first.count(";") > first.count(",") else ","
+            return pd.read_csv(path, encoding=enc, sep=sep)
+        except UnicodeDecodeError:
+            continue
+    return pd.read_csv(path)
 
 
 def _yesno(s) -> int:
@@ -61,6 +67,7 @@ def _bc(s) -> str:
     if t in ("c", "option_c", "optionc"):
         return "C"
     return str(s).strip().upper()
+
 
 
 def _true_label_cxr(mapping: pd.DataFrame) -> pd.Series:
@@ -166,8 +173,11 @@ def analyze_agreement(r1_gold_dir: str, r2_overlap_dir: str) -> Optional[dict]:
     r2_map = _read_csv(os.path.join(r2_overlap_dir, "case_mapping.csv"))
     if any(x is None for x in (r1, r1_map, r2, r2_map)):
         return None
+    for df_, where in ((r1, os.path.join(r1_gold_dir, "cases.csv")),
+                       (r2, os.path.join(r2_overlap_dir, "cases.csv"))):
+        if "finding_present" not in df_.columns:
+            return None
     if r1["finding_present"].isna().all() or r2["finding_present"].isna().all():
-        print("[agreement] one of the readers has not filled the overlap yet.")
         return None
 
     r1m = r1.merge(r1_map[["display_id", "case_id"]], on="display_id", how="left")
@@ -193,6 +203,7 @@ def analyze_agreement(r1_gold_dir: str, r2_overlap_dir: str) -> Optional[dict]:
     return out
 
 
+
 def analyze_distrust_vs_deviation(merged_gold: pd.DataFrame, dev_csv: str,
                                   modality: str) -> Optional[dict]:
     """If a deviation-score CSV exists, test whether the reader's distrust item
@@ -216,6 +227,39 @@ def analyze_distrust_vs_deviation(merged_gold: pd.DataFrame, dev_csv: str,
 
 
 
+def build_triplet_scoring_file(reader_study_root: str, out_path: str) -> Optional[str]:
+    pieces = []
+    candidates = [
+        (os.path.join(reader_study_root, "reader1_radiologist", "task_B_similarity")),
+        (os.path.join(reader_study_root, "reader2_radiologist", "task_E_similarity")),
+        (os.path.join(reader_study_root, "reader3_pathologist", "task_G_similarity")),
+    ]
+    for d in candidates:
+        ans = _read_csv(os.path.join(d, "cases.csv"))
+        mp  = _read_csv(os.path.join(d, "case_mapping.csv"))
+        if ans is None or mp is None:
+            continue
+        if "more_similar_to" not in ans.columns or ans["more_similar_to"].isna().all():
+            continue
+        m = ans.merge(mp, on="triplet_id", how="left", suffixes=("", "_map"))
+        need = {"case_a", "case_b", "case_c"}
+        if not need.issubset(m.columns):
+            print(f"[triplets] {d}: missing case columns after merge; skipped.")
+            continue
+        m = m.rename(columns={"more_similar_to": "choice"})
+        m["choice"] = m["choice"].astype(str).str.strip().str.lower()
+        m = m[m["choice"].isin(["b", "c"])]
+        pieces.append(m[["case_a", "case_b", "case_c", "choice"]])
+
+    if not pieces:
+        return None
+    merged = pd.concat(pieces, ignore_index=True)
+    os.makedirs(os.path.dirname(out_path), exist_ok=True)
+    merged.to_csv(out_path, index=False)
+    return out_path
+
+
+
 def analyze_all(cfg_path: str, reader_study_root: Optional[str] = None):
     cfg = read_config(cfg_path)["Convergence"]
     if reader_study_root is None:
@@ -230,6 +274,7 @@ def analyze_all(cfg_path: str, reader_study_root: Optional[str] = None):
 
     summary_rows = []
     merged_for_dev = {}
+    all_rows = []   # single consolidated long-format record for the whole study
 
     g_r1 = analyze_gold(os.path.join(r1, "task_A_gold_labels"), "cxr", "reader1")
     if g_r1:
@@ -241,32 +286,69 @@ def analyze_all(cfg_path: str, reader_study_root: Optional[str] = None):
     if g_r3:
         summary_rows.append(g_r3["summary"]); merged_for_dev["reader3"] = g_r3["merged"]
 
-    if summary_rows:
-        pd.DataFrame(summary_rows).to_csv(
-            os.path.join(out_dir, "reader_gold_metrics.csv"), index=False)
+    for row in summary_rows:
+        r = dict(row); r["section"] = "gold_label_metrics"
+        all_rows.append(r)
 
     ag = analyze_agreement(os.path.join(r1, "task_A_gold_labels"),
                            os.path.join(r2, "task_C_agreement"))
     if ag:
-        pd.DataFrame([ag]).to_csv(
-            os.path.join(out_dir, "reader_agreement.csv"), index=False)
+        r = dict(ag); r["section"] = "inter_reader_agreement"
+        all_rows.append(r)
 
-    dev_rows = []
     cxr_dev = cfg["reader_study"].get("deviation_score_csv", "")
     histo_dev = cfg["reader_study"].get("histo_deviation_score_csv", "")
     if "reader1" in merged_for_dev:
         r = analyze_distrust_vs_deviation(merged_for_dev["reader1"], cxr_dev, "cxr")
         if r:
-            dev_rows.append(r)
+            r = dict(r); r["section"] = "distrust_vs_deviation"
+            all_rows.append(r)
     if "reader3" in merged_for_dev:
         r = analyze_distrust_vs_deviation(merged_for_dev["reader3"], histo_dev, "histo")
         if r:
-            dev_rows.append(r)
-    if dev_rows:
-        pd.DataFrame(dev_rows).to_csv(
-            os.path.join(out_dir, "distrust_vs_deviation.csv"), index=False)
+            r = dict(r); r["section"] = "distrust_vs_deviation"
+            all_rows.append(r)
 
+    trip_out = cfg["reader_study"].get("triplets_csv", "")
+    if trip_out:
+        build_triplet_scoring_file(reader_study_root, trip_out)
+
+    trip_status = "PENDING (run main_ontology_analysis after this to score triplets)"
+    trip_csv = os.path.join(cfg["alignment"]["results_base_dir"],
+                            "results_e3_ontology", "triplet_accuracy.csv")
+    trip = _read_csv(trip_csv)
+    if trip is not None and not trip.empty:
+        folded = 0
+        for _, tr in trip.iterrows():
+            r = tr.to_dict()
+            n_ok = float(r.get("n", 0) or 0) > 0
+            acc_ok = str(r.get("triplet_acc_mean", "")).strip() not in ("", "nan")
+            if not (n_ok and acc_ok):
+                continue
+            r["section"] = "triplet_grounding"
+            r["modality"] = "cxr"
+            all_rows.append(r)
+            folded += 1
+        trip_status = f"OK ({folded} rows folded of {len(trip)})"
+
+    if all_rows:
+        df = pd.DataFrame(all_rows)
+        front = [c for c in ("section", "reader", "modality", "comparison", "n",
+                             "n_shared") if c in df.columns]
+        rest = [c for c in df.columns if c not in front]
+        df = df[front + rest]
+        out_csv = os.path.join(out_dir, "reader_study_results.csv")
+        df.to_csv(out_csv, index=False)
+        present = sorted(df["section"].unique())
+    else:
+        out_csv = None
+        present = []
+
+    def _has(sec): return "yes" if sec in present else "NO"
+    if out_csv:
+        print(f"\n[reader study] consolidated -> {out_csv} ({len(df)} rows)")
+    else:
+        print("\n[reader study] no filled reader tasks found yet; nothing written.")
 
     for f in sorted(os.listdir(out_dir)):
         print(f"  {f}")
-
