@@ -2,9 +2,8 @@
 
 ## Overview
 
-This is the official repository of the paper **Self-supervision drives representational convergence in medical foundation models more than clinical supervision**.
+This is the official repository of the paper [**Self-supervision drives representational convergence in medical foundation models more than clinical supervision**](https://arxiv.org/abs/2607.20274).
 
-Preprint version: [link to be added].
 
 Medical foundation models are trained independently, on different data, with different objectives, yet are increasingly assumed to learn a shared representation of pathology. This study asks whether that convergence actually holds, how strong it is, and what causes it. The pipeline embeds a panel of 22 image encoders and 7 text encoders over five imaging modalities and six chest-radiography sites, builds a cross-encoder consensus geometry from relative representations, and isolates the causal driver with a controlled-training arm that varies the training objective at fixed architecture and data. It measures convergence against a random-initialization floor, tests whether the training objective causes it, corroborates the mechanism with a synthetic generative model, relates the shared geometry to clinical comorbidity and coding taxonomy, tests for modulation by model scale, downstream performance, finding rarity, and patient demographics, evaluates cross-encoder and cross-site functional transfer with representation stitching, and tests whether convergence extends across the image-to-text boundary. An expert reader study grounding the geometry is reserved for a later revision.
 
@@ -181,11 +180,11 @@ This produces the five long-format CSVs in `outputs_root/final_tables/` (`conver
 If you use this repository, please cite our paper:
 
 ```bibtex
-@misc{tayebiarasteh2026convergence,
-  title  = {Self-supervision drives representational convergence in medical foundation models more than clinical supervision},
-  author = {Tayebi Arasteh, Soroosh and others},
-  year   = {2026},
-  note   = {Preprint}
+@misc{arastehconvergence2026,
+  author={Soroosh Tayebi Arasteh and Sebastian Ziegelmayer and Mahshad Lotfinia and Lisa Adams and Sven Nebelung and Jakob Nikolas Kather and  Daniel Truhn},
+  eprint={2607.20274},
+  year={2026},
+  url={https://arxiv.org/abs/2607.20274}, 
 }
 ```
 
