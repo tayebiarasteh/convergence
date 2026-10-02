@@ -1,6 +1,6 @@
 """
 data_loader/build_histo_pool.py
-Created on May 25, 2026
+Created on June 15, 2026
 
 @author: Soroosh Tayebi Arasteh
 https://github.com/tayebiarasteh
@@ -17,13 +17,14 @@ import pandas as pd
 from config.serde import read_config
 from data_loader.build_utils import (
     assert_unique_case_ids, cap_per_group, finalize_manifest,
-    new_rng, read_csv_defensively,
+    read_csv_defensively,
 )
+from Inference.resume_utils import write_csv_atomic, MissingInput, append_status, status_path
+from data_loader.build_utils import manifest_exists_and_valid, write_manifest
 
 
-_LABEL_COLS_HISTO = ["tumor_label"]       # PCam: 1 = tumor, 0 = no tumor
-_META_COLS_HISTO  = ["tissue_class"]      # NCT-CRC: class name
-
+_LABEL_COLS_HISTO = ["tumor_label"]
+_META_COLS_HISTO  = ["tissue_class"]
 
 
 def _build_pcam(hcfg: dict, pcfg: dict, cap: int, seed: int) -> pd.DataFrame:
@@ -34,7 +35,6 @@ def _build_pcam(hcfg: dict, pcfg: dict, cap: int, seed: int) -> pd.DataFrame:
     y_path = os.path.join(h5_dir,
                           f"camelyonpatch_level_2_split_{split}_y.h5")
     if not os.path.exists(y_path):
-        print(f"[build_histo_pool/pcam] Label H5 not found: {y_path}; skipping PCam.")
         return pd.DataFrame()
 
     with h5py.File(y_path, "r") as fy:
@@ -59,19 +59,12 @@ def _build_pcam(hcfg: dict, pcfg: dict, cap: int, seed: int) -> pd.DataFrame:
             "tumor_label":  float(label),
         })
 
-    if missing:
-        print(f"[build_histo_pool/pcam] {missing} PNG patches not found "
-              f"(run preprocess_histo_pcam.py first); {len(rows)} rows kept.")
 
     if not rows:
         return pd.DataFrame()
 
     df = pd.DataFrame(rows)
-    # Cap per class
     df = cap_per_group(df, "tumor_label", cap=cap, seed=seed)
-    print(f"[build_histo_pool/pcam] {len(df)} rows "
-          f"(pos={int((df['tumor_label']==1).sum())} / "
-          f"neg={int((df['tumor_label']==0).sum())})")
     return df
 
 
@@ -83,39 +76,35 @@ def _build_nct_crc(hcfg: dict, ncfg: dict, cap: int, seed: int) -> pd.DataFrame:
                            ["ADI","BACK","DEB","LYM","MUC","MUS","NORM","STR","TUM"])
 
     rows: List[dict] = []
-    for split_tag, subdir in [("train", train_sub), ("val", val_sub)]:
+    for split_tag, subdir in [("train", train_sub), ("valid", val_sub)]:
         split_root = os.path.join(root, subdir)
         if not os.path.isdir(split_root):
-            print(f"[build_histo_pool/nct_crc] {split_root} not found; skipping {split_tag}.")
             continue
         for cls in classes:
             cls_dir = os.path.join(split_root, cls)
             if not os.path.isdir(cls_dir):
                 continue
-            # Glob for .tif files (native format, 224px, no preprocessing needed)
             files = glob.glob(os.path.join(cls_dir, "*.tif"))
             for fpath in files:
-                rel = os.path.relpath(fpath, root)   # e.g. NCT-CRC-HE-100K/ADI/ADI-TCGA-XXXX.tif
+                rel = os.path.relpath(fpath, root)
                 stem = os.path.splitext(os.path.basename(fpath))[0]
                 rows.append({
                     "case_id":      f"nct_crc__{split_tag}_{cls}_{stem}",
                     "dataset":      "nct_crc",
                     "modality":     "histo",
                     "split":        split_tag,
-                    "image_key":    rel,       # relative to root; loader prepends root
+                    "image_key":    rel,
                     "image_subdir": np.nan,
                     "tissue_class": cls,
                     "tumor_label":  1.0 if cls == "TUM" else 0.0,
                 })
 
     if not rows:
-        print("[build_histo_pool/nct_crc] No TIF files found; check nct_crc.root path.")
         return pd.DataFrame()
 
     df = pd.DataFrame(rows)
     df = cap_per_group(df, "tissue_class", cap=cap, seed=seed)
     return df
-
 
 
 def main_build_histo_pool(global_config_path: str) -> str:
@@ -125,6 +114,9 @@ def main_build_histo_pool(global_config_path: str) -> str:
     seed   = int(cfg.get("seed", 42))
     cap    = int(hcfg.get("cases_per_class", 2000))
     out_csv       = hcfg["pool_manifest_csv"]
+    _expected = {"source": "histo", "seed": int(cfg.get("seed", 42))}
+    if manifest_exists_and_valid(out_csv, _expected, owner="histo_pool"):
+        return out_csv
     labels_csv    = hcfg["nct_crc_labels_csv"]
 
 
@@ -139,15 +131,14 @@ def main_build_histo_pool(global_config_path: str) -> str:
         nct_df = _build_nct_crc(hcfg, hcfg["nct_crc"], cap, seed)
         if not nct_df.empty:
             parts.append(nct_df)
-            # Write standalone NCT-CRC labels file for E5 training loaders
             nct_labels = nct_df[["case_id", "image_key", "tissue_class",
                                    "split"]].copy()
             os.makedirs(os.path.dirname(labels_csv), exist_ok=True)
-            nct_labels.to_csv(labels_csv, index=False)
-            print(f"[build_histo_pool] NCT-CRC labels -> {labels_csv}")
+            write_csv_atomic(nct_labels, labels_csv)
 
     if not parts:
-        raise RuntimeError("[build_histo_pool] No histo rows produced.")
+        raise MissingInput("[build_histo_pool] no histopathology source produced rows; check that "
+                           "the NCT-CRC and PCam sources are present.")
 
     pool = pd.concat(parts, ignore_index=True)
     pool = finalize_manifest(pool,
@@ -156,7 +147,5 @@ def main_build_histo_pool(global_config_path: str) -> str:
     assert_unique_case_ids(pool)
 
     os.makedirs(os.path.dirname(out_csv), exist_ok=True)
-    pool.to_csv(out_csv, index=False)
-    for ds, grp in pool.groupby("dataset"):
-        print(f"  {ds}: {len(grp)} rows")
+    write_csv_atomic(pool, out_csv)
     return out_csv

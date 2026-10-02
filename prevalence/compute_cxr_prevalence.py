@@ -1,6 +1,6 @@
 """
 prevalence/compute_cxr_prevalence.py
-Created on May 26, 2026
+Created on June 13, 2026
 
 @author: Soroosh Tayebi Arasteh
 https://github.com/tayebiarasteh
@@ -14,6 +14,8 @@ import pandas as pd
 from config.serde import read_config
 from data_loader.build_utils import read_csv_defensively
 from data_loader.cxr_harmonization import CANONICAL_CXR_FINDINGS, EXTENDED_MAPS
+from Inference.resume_utils import write_csv_atomic, MissingInput, append_status, status_path
+from data_loader.build_utils import manifest_exists_and_valid, write_manifest
 
 
 def main_compute_cxr_prevalence(global_config_path: str) -> str:
@@ -23,19 +25,17 @@ def main_compute_cxr_prevalence(global_config_path: str) -> str:
     out_csv  = cfg["prevalence"]["out_csv"]
 
     if not os.path.exists(pool_csv):
-        raise FileNotFoundError(
+        raise MissingInput(
             f"[compute_cxr_prevalence] Pool manifest not found: {pool_csv}. "
             f"Run build_cxr_pool first."
         )
 
     pool = read_csv_defensively(pool_csv)
 
-    # Collect all finding columns: canonical 14 + extended
     ext_names = sorted({name for emap in EXTENDED_MAPS.values()
                         for name in emap.values()})
     all_findings = list(CANONICAL_CXR_FINDINGS) + ext_names
 
-    # Compute prevalence for every finding column that is present in the manifest
     records = []
     for finding in all_findings:
         if finding not in pool.columns:
@@ -47,7 +47,6 @@ def main_compute_cxr_prevalence(global_config_path: str) -> str:
         prevalence = round(n_positive / n_labeled, 6) if n_labeled > 0 else float("nan")
         vocab = "canonical" if finding in CANONICAL_CXR_FINDINGS else "extended"
 
-        # Per-site counts for the canonical findings
         site_counts = {}
         for site, grp in pool.groupby("dataset"):
             sc = pd.to_numeric(grp[finding], errors="coerce")
@@ -69,6 +68,6 @@ def main_compute_cxr_prevalence(global_config_path: str) -> str:
              .reset_index(drop=True))
 
     os.makedirs(os.path.dirname(out_csv), exist_ok=True)
-    out.to_csv(out_csv, index=False)
+    write_csv_atomic(out, out_csv)
 
     return out_csv

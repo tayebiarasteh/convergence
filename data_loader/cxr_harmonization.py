@@ -1,6 +1,6 @@
 """
 data_loader/cxr_harmonization.py
-Created on May 25, 2026
+Created on June 14, 2026
 
 @author: Soroosh Tayebi Arasteh
 https://github.com/tayebiarasteh
@@ -37,8 +37,6 @@ MIMIC_LABEL_MAP: Dict[str, str] = {
     "support_devices": "support_devices",
 }
 
-# CheXpert master list carries all 14 findings under the same snake_case names
-# as MIMIC, so the map is identical.
 CHEXPERT_LABEL_MAP: Dict[str, str] = dict(MIMIC_LABEL_MAP)
 
 VINDR_CXR_LABEL_MAP: Dict[str, str] = {
@@ -53,7 +51,6 @@ VINDR_CXR_LABEL_MAP: Dict[str, str] = {
     "Pleural thickening": "pleural_other",
     "Lung Opacity": "lung_opacity",
     "Nodule/Mass": "lung_lesion",
-    # Two native fracture columns both fold into canonical fracture.
     "Rib fracture": "fracture",
     "Clavicle fracture": "fracture",
 }
@@ -137,7 +134,6 @@ EXTENDED_MAPS: Dict[str, Dict[str, str]] = {
         "Bronchitis/Bronchiolitis": "bronchitis_bronchiolitis",
         "Other disease": "other_disease",
         "Situs inversus": "situs_inversus",
-        # The PCXR master misspells this column; key must match exactly.
         "Diagphramatic hernia": "diaphragmatic_hernia",
         "Tuberculosis": "tuberculosis",
         "Congenital emphysema": "congenital_emphysema",
@@ -149,7 +145,7 @@ EXTENDED_MAPS: Dict[str, Dict[str, str]] = {
 }
 
 
-_CHEXPERT_POLICY = dict(positive_code=1, negative_codes=(0, 3), exclude_codes=(2,))
+_CHEXPERT_POLICY = dict(positive_code=1, negative_codes=(0, 2), exclude_codes=(3,))
 _BINARY_POLICY = dict(positive_code=1, negative_codes=(0,), exclude_codes=())
 
 LABEL_POLICY: Dict[str, dict] = {
@@ -171,43 +167,11 @@ LABEL_MAPS: Dict[str, Dict[str, str]] = {
 }
 
 
-def decode_site_labels(site: str, row: dict) -> Dict[str, float]:
-    policy = LABEL_POLICY[site]
-    out: Dict[str, float] = {f: float("nan") for f in CANONICAL_CXR_FINDINGS}
-    for native_col, canonical in LABEL_MAPS[site].items():
-        if native_col not in row:
-            continue
-        v = binarize_presence(row[native_col], **policy)
-        prev = out[canonical]
-        if v == 1.0:
-            out[canonical] = 1.0
-        elif v == 0.0 and prev != 1.0:
-            out[canonical] = 0.0
-    return out
-
-
-def decode_extended_labels(site: str, row: dict) -> Dict[str, float]:
-    """Return {extended_finding: presence_value} for one row, for sites that
-    contribute rare-tail findings. Empty for sites without an extended map."""
-    policy = LABEL_POLICY[site]
-    emap = EXTENDED_MAPS.get(site, {})
-    out: Dict[str, float] = {}
-    for native_col, ext_name in emap.items():
-        if native_col in row:
-            out[ext_name] = binarize_presence(row[native_col], **policy)
-    return out
-
-
-
 def _res_dirname(resolution: int) -> str:
-    """Preprocessed sibling-folder name for a resolution. 224 -> preprocessed224;
-    anything else (512) -> preprocessed, matching the existing on-disk trees."""
     return "preprocessed224" if int(resolution) == 224 else "preprocessed"
 
 
 def _split_subdir(split: str) -> str:
-    """VinDr-CXR and VinDr-PCXR store train and valid under train/, test under
-    test/."""
     return "test" if str(split) == "test" else "train"
 
 
@@ -223,18 +187,15 @@ def resolve_cxr_image_path(
     key = str(image_key)
 
     if dataset == "mimic":
-        # jpg_rel_path contains 'files/'; swap to the resolution folder.
         token = "preprocessed224/" if int(resolution) == 224 else "preprocessed/"
         return os.path.join(image_root, key.replace("files/", token))
 
     if dataset == "chexpert":
-        # jpg_rel_path begins 'CheXpert-v1.0/'; insert the resolution folder.
         token = ("CheXpert-v1.0/preprocessed224/" if int(resolution) == 224
                  else "CheXpert-v1.0/preprocessed/")
         return os.path.join(image_root, key.replace("CheXpert-v1.0/", token, 1))
 
     if dataset == "nih_cxr14":
-        # img_rel_path is relative to CXR14/<res>/.
         return os.path.join(image_root, "CXR14", res, key)
 
     if dataset == "padchest":
@@ -250,9 +211,17 @@ def resolve_cxr_image_path(
         return os.path.join(image_root, res, sub, key)
 
     if dataset in ("vindr_cxr", "vindr_pcxr"):
-        # <res>/<train|test>/<image_id>.jpg.
         fname = key if key.endswith(".jpg") else f"{key}.jpg"
         return os.path.join(image_root, res, _split_subdir(split), fname)
+
+    if dataset == "taix":
+        root = image_root if int(resolution) == 224 else image_root.replace("preprocessed224", "preprocessed")
+        return os.path.join(root, key)
+
+    if dataset == "rexgradient":
+        while key.startswith("../"):
+            key = key[3:]
+        return os.path.join(image_root, key)
 
     raise KeyError(f"unknown cxr dataset '{dataset}'")
 
@@ -266,7 +235,6 @@ VIEW_KEEP: Dict[str, Optional[List[str]]] = {
     "vindr_pcxr": None,
 }
 
-# Master-list column carrying the view, per site (None -> no filtering).
 VIEW_COL: Dict[str, Optional[str]] = {
     "mimic": "view",
     "chexpert": "view",
@@ -276,7 +244,6 @@ VIEW_COL: Dict[str, Optional[str]] = {
     "vindr_pcxr": None,
 }
 
-# Master-list column carrying the raw image key, per site.
 IMAGE_KEY_COL: Dict[str, str] = {
     "mimic": "jpg_rel_path",
     "chexpert": "jpg_rel_path",
@@ -286,7 +253,6 @@ IMAGE_KEY_COL: Dict[str, str] = {
     "vindr_pcxr": "image_id",
 }
 
-# Secondary path token column (PadChest only).
 IMAGE_SUBDIR_COL: Dict[str, Optional[str]] = {
     "mimic": None, "chexpert": None, "vindr_cxr": None,
     "nih_cxr14": None, "padchest": "ImageDir", "vindr_pcxr": None,

@@ -1,6 +1,6 @@
 """
 data_loader/modality_embedding_loaders.py
-Created on May 25, 2026
+Created on June 15, 2026
 
 @author: Soroosh Tayebi Arasteh
 https://github.com/tayebiarasteh
@@ -26,9 +26,6 @@ class HistoEmbeddingDataset(BaseEmbeddingDataset):
         hcfg = self.params["Convergence"]["histo"]
         self._pcam_root = hcfg["pcam"]["h5_dir"]
         self._nct_root  = hcfg["nct_crc"]["root"]
-        # Quilt-1M shares the histo modality; its root is under quilt config.
-        qcfg = self.params["Convergence"].get("quilt", {})
-        self._quilt_root = qcfg.get("root", "")
 
     def _resolve_path(self, row: Dict[str, Any]) -> str:
         dataset = str(row.get("dataset", ""))
@@ -37,10 +34,7 @@ class HistoEmbeddingDataset(BaseEmbeddingDataset):
             return os.path.join(self._pcam_root, key)
         if dataset == "nct_crc":
             return os.path.join(self._nct_root, key)
-        if dataset == "quilt":
-            return os.path.join(self._quilt_root, key)
         raise KeyError(f"[HistoEmbeddingDataset] Unknown histo dataset: '{dataset}'")
-
 
 
 class FundusEmbeddingDataset(BaseEmbeddingDataset):
@@ -78,7 +72,6 @@ class DermEmbeddingDataset(BaseEmbeddingDataset):
         res    = "preprocessed224" if self.resolution == 224 else "preprocessed"
         subdir = str(row.get("image_subdir", "")) if row.get("image_subdir") else ""
         key    = str(row.get("image_key", ""))
-        # Ensure .jpg extension (derm manifests store bare image_id)
         if not key.lower().endswith(".jpg"):
             key = key + ".jpg"
         return os.path.join(self._image_root, res, subdir, key)
@@ -103,7 +96,6 @@ class MammoEmbeddingDataset(BaseEmbeddingDataset):
         return os.path.join(self._image_root, res, study_id, key)
 
 
-
 LOADER_REGISTRY: Dict[str, type] = {
     "cxr":    CXREmbeddingDataset,
     "histo":  HistoEmbeddingDataset,
@@ -111,13 +103,3 @@ LOADER_REGISTRY: Dict[str, type] = {
     "derm":   DermEmbeddingDataset,
     "mammo":  MammoEmbeddingDataset,
 }
-
-
-def get_embedding_loader(modality: str) -> type:
-    """Return the loader class for the given modality key."""
-    if modality not in LOADER_REGISTRY:
-        raise KeyError(
-            f"Unknown modality '{modality}'. "
-            f"Expected one of: {sorted(LOADER_REGISTRY.keys())}"
-        )
-    return LOADER_REGISTRY[modality]

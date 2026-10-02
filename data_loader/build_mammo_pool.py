@@ -1,6 +1,6 @@
 """
 data_loader/build_mammo_pool.py
-Created on May 25, 2026
+Created on June 13, 2026
 
 @author: Soroosh Tayebi Arasteh
 https://github.com/tayebiarasteh
@@ -18,6 +18,8 @@ from data_loader.build_utils import (
     assert_unique_case_ids, cap_per_group, finalize_manifest,
     read_csv_defensively,
 )
+from Inference.resume_utils import write_csv_atomic, MissingInput, append_status, status_path
+from data_loader.build_utils import manifest_exists_and_valid, write_manifest
 
 
 def _parse_categories(raw) -> List[str]:
@@ -42,12 +44,14 @@ def main_build_mammo_pool(global_config_path: str) -> str:
     mcfg   = cfg["mammo"]
 
     if not mcfg.get("enabled", True):
-        print("[build_mammo_pool] Mammo disabled in config; nothing to do.")
         return ""
 
     image_root    = mcfg["image_root"]
     findings_csv  = mcfg["findings_csv"]
     out_csv       = mcfg["pool_manifest_csv"]
+    _expected = {"source": "mammo", "seed": int(cfg.get("seed", 42))}
+    if manifest_exists_and_valid(out_csv, _expected, owner="mammo_pool"):
+        return out_csv
     cap           = int(mcfg.get("cases_per_finding", 500))
     seed          = int(cfg.get("seed", 42))
     category_map  = mcfg.get("category_map", {})
@@ -55,7 +59,7 @@ def main_build_mammo_pool(global_config_path: str) -> str:
                              list(category_map.values()) if category_map else [])
 
     if not os.path.exists(findings_csv):
-        raise FileNotFoundError(
+        raise MissingInput(
             f"[build_mammo_pool] findings_csv not found: {findings_csv}"
         )
 
@@ -68,14 +72,13 @@ def main_build_mammo_pool(global_config_path: str) -> str:
         if finding not in usable:
             continue
         pos_ids = ann[ann["_cats"].apply(lambda cs: cat_str in cs)]["image_id"]
-        images[finding] = images["image_id"].isin(pos_ids).astype(float)
+        images[finding] = images["image_id"].isin(pos_ids).astype(float, copy=False)
 
     no_finding_ids = ann[ann["_cats"].apply(
         lambda cs: cs == ["No Finding"]
     )]["image_id"]
-    images["no_finding"] = images["image_id"].isin(no_finding_ids).astype(float)
+    images["no_finding"] = images["image_id"].isin(no_finding_ids).astype(float, copy=False)
 
-    # Verify images exist at 224px
     def _exists(row):
         return os.path.exists(
             _resolve_mammo_path(image_root, row["study_id"], row["image_id"])
@@ -83,11 +86,8 @@ def main_build_mammo_pool(global_config_path: str) -> str:
 
     exists_mask = images.apply(_exists, axis=1)
     n_miss = (~exists_mask).sum()
-    if n_miss:
-        print(f"[build_mammo_pool] {n_miss} images not found at 224px; dropping.")
     images = images[exists_mask].copy()
 
-    # For the discriminant control we cap total images (not per-finding balance)
     total_cap = cap * len(usable)
     if len(images) > total_cap:
         images = images.sample(n=total_cap, random_state=seed)
@@ -110,8 +110,7 @@ def main_build_mammo_pool(global_config_path: str) -> str:
     assert_unique_case_ids(pool)
 
     os.makedirs(os.path.dirname(out_csv), exist_ok=True)
-    pool.to_csv(out_csv, index=False)
+    write_csv_atomic(pool, out_csv)
     for f in finding_cols:
         n_pos = int((pool[f] == 1).sum())
-        print(f"  {f}: {n_pos} positive")
     return out_csv

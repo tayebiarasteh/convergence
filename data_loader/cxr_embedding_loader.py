@@ -1,6 +1,6 @@
 """
 data_loader/cxr_embedding_loader.py
-Created on May 25, 2026
+Created on June 15, 2026
 
 @author: Soroosh Tayebi Arasteh
 https://github.com/tayebiarasteh
@@ -24,10 +24,14 @@ class CXREmbeddingDataset(BaseEmbeddingDataset):
         site_roots: Optional[Dict[str, str]] = None,
     ):
         super().__init__(cfg_path, manifest_csv, resolution, label_cols)
-        sites_cfg = self.params["Convergence"]["cxr"]["sites"]
-        self._roots: Dict[str, str] = site_roots or {
-            site: scfg["image_root"] for site, scfg in sites_cfg.items()
-        }
+        conv = self.params["Convergence"]
+        sites_cfg = conv["cxr"]["sites"]
+        roots = {site: scfg["image_root"] for site, scfg in sites_cfg.items()}
+        for extra in ("taix", "rexgradient"):
+            blk = conv.get(extra, {}) or {}
+            if blk.get("image_root"):
+                roots[extra] = blk["image_root"]
+        self._roots: Dict[str, str] = site_roots or roots
 
     def _resolve_path(self, row: Dict[str, Any]) -> str:
         dataset = str(row.get("dataset", ""))
@@ -37,9 +41,6 @@ class CXREmbeddingDataset(BaseEmbeddingDataset):
                 f"[CXREmbeddingDataset] No image_root for dataset '{dataset}'. "
                 f"Known datasets: {list(self._roots.keys())}"
             )
-        # image_subdir may legitimately be 0 (falsy), so test for NaN/empty
-        # explicitly rather than truthiness. The resolver handles the float->int
-        # normalization (e.g. '1.0' -> '1').
         raw_subdir = row.get("image_subdir", None)
         subdir_str = str(raw_subdir) if raw_subdir is not None else ""
         subdir = None if subdir_str.lower() in ("", "nan", "none") else subdir_str

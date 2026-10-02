@@ -1,6 +1,6 @@
 """
 ontology/build_ontology_geometry.py
-Created on May 26, 2026
+Created on June 13, 2026
 
 @author: Soroosh Tayebi Arasteh
 https://github.com/tayebiarasteh
@@ -15,28 +15,29 @@ import pandas as pd
 from config.serde import read_config
 from data_loader.build_utils import read_csv_defensively
 from data_loader.cxr_harmonization import CANONICAL_CXR_FINDINGS
+from Inference.resume_utils import write_csv_atomic, MissingInput, append_status, status_path
+from data_loader.build_utils import manifest_exists_and_valid, write_manifest
 
 
 FINDING_TO_ICD10: Dict[str, str] = {
-    "atelectasis":               "J9811",   # J98.11 Atelectasis
-    "cardiomegaly":              "I517",    # I51.7  Cardiomegaly
-    "consolidation":             "J189",    # J18.9  Pneumonia, unspecified (consolidation often coded here)
-    "edema":                     "J810",    # J81.0  Acute pulmonary oedema
-    "enlarged_cardiomediastinum": "R931",   # R93.1  Abnormal findings on imaging of heart
-    "fracture":                  "S2200XA", # S22.00XA Fracture of unspecified thoracic vertebra / rib
-    "lung_lesion":               "R911",    # R91.1  Solitary pulmonary nodule
-    "lung_opacity":              "R918",    # R91.8  Other nonspecific findings of diagnostic imaging
-    "no_finding":                "Z0000",   # Z00.00 General adult medical examination, no abnormal findings
-    "pleural_effusion":          "J90",     # J90    Pleural effusion
-    "pleural_other":             "J929",    # J92.9  Pleural plaque, unspecified
-    "pneumonia":                 "J189",    # J18.9  Pneumonia, unspecified (same as consolidation; close by design)
-    "pneumothorax":              "J939",    # J93.9  Pneumothorax, unspecified
-    "support_devices":           "Z9689",   # Z96.89 Presence of other specified functional implants
+    "atelectasis":               "J9811",
+    "cardiomegaly":              "I517",
+    "consolidation":             "J189",
+    "edema":                     "J810",
+    "enlarged_cardiomediastinum": "R931",
+    "fracture":                  "S2200XA",
+    "lung_lesion":               "R911",
+    "lung_opacity":              "R918",
+    "no_finding":                "Z0000",
+    "pleural_effusion":          "J90",
+    "pleural_other":             "J929",
+    "pneumonia":                 "J189",
+    "pneumothorax":              "J939",
+    "support_devices":           "Z9689",
 }
 
 
 def _normalize_code(code: str) -> str:
-    """Strip period and whitespace to get the raw code string used for LCP."""
     return code.replace(".", "").strip().upper()
 
 
@@ -57,33 +58,25 @@ def _hierarchy_distance(code_a: str, code_b: str) -> int:
 def _parse_icd10_codes(txt_path: str) -> set:
     codes = set()
     if not os.path.exists(txt_path):
-        print(f"[build_ontology] ICD-10 order file not found: {txt_path}. "
-              f"Skipping code validation.")
         return codes
     with open(txt_path, "r", encoding="utf-8", errors="replace") as fh:
         for line in fh:
             if len(line) < 15:
                 continue
-            code_raw = line[6:13].strip()   # cols 7-13 (0-indexed 6-12)
+            code_raw = line[6:13].strip()
             if code_raw:
                 codes.add(_normalize_code(code_raw))
-    print(f"[build_ontology] Parsed {len(codes)} ICD-10-CM codes from order file.")
     return codes
 
 
 def _build_icd10_distances(valid_codes: set) -> pd.DataFrame:
-    """Build 14x14 pairwise ICD-10 hierarchy distance matrix (long format)."""
     findings = CANONICAL_CXR_FINDINGS
     rows = []
     for fa in findings:
         code_a = FINDING_TO_ICD10.get(fa, "")
         norm_a = _normalize_code(code_a)
         if valid_codes and norm_a not in valid_codes:
-            # Shorten to category (3 chars) as fallback
             norm_a = norm_a[:3]
-            if norm_a not in valid_codes:
-                print(f"  WARNING: ICD-10 code for '{fa}' ({code_a}) "
-                      f"not found in order file; using {norm_a} for distance.")
         for fb in findings:
             code_b = FINDING_TO_ICD10.get(fb, "")
             norm_b = _normalize_code(code_b)
@@ -101,12 +94,10 @@ def _build_icd10_distances(valid_codes: set) -> pd.DataFrame:
 
 
 def _build_comorbidity(pool_csv: str) -> pd.DataFrame:
-    """Build 14x14 pairwise Jaccard comorbidity matrix from MIMIC pool labels."""
     pool = read_csv_defensively(pool_csv)
     mimic = pool[pool["dataset"] == "mimic"].copy()
 
     findings = CANONICAL_CXR_FINDINGS
-    # Build binary presence arrays
     presence: Dict[str, set] = {}
     for f in findings:
         if f not in mimic.columns:
@@ -149,12 +140,13 @@ def main_build_ontology_geometry(global_config_path: str):
     valid_codes = _parse_icd10_codes(icd10_txt)
     icd10_df    = _build_icd10_distances(valid_codes)
     os.makedirs(os.path.dirname(icd10_csv), exist_ok=True)
-    icd10_df.to_csv(icd10_csv, index=False)
+    write_csv_atomic(icd10_df, icd10_csv)
 
     if not os.path.exists(pool_csv):
-        print(f"  Pool manifest not found: {pool_csv}. "
-              f"Skipping comorbidity (run build_cxr_pool first).")
+        raise MissingInput(
+            f"[build_ontology] the CXR pool manifest is absent at {pool_csv}, so the comorbidity "
+            f"reference cannot be built. Run main_build_cxr_pool before this stage.")
     else:
         comorbid_df = _build_comorbidity(pool_csv)
         os.makedirs(os.path.dirname(comorbid_csv), exist_ok=True)
-        comorbid_df.to_csv(comorbid_csv, index=False)
+        write_csv_atomic(comorbid_df, comorbid_csv)

@@ -1,6 +1,6 @@
 """
 data_loader/build_derm_pool.py
-Created on May 25, 2026
+Created on June 13, 2026
 
 @author: Soroosh Tayebi Arasteh
 https://github.com/tayebiarasteh
@@ -17,6 +17,8 @@ from data_loader.build_utils import (
     assert_unique_case_ids, cap_per_group, finalize_manifest,
     read_csv_defensively,
 )
+from Inference.resume_utils import write_csv_atomic, MissingInput, append_status, status_path
+from data_loader.build_utils import manifest_exists_and_valid, write_manifest
 
 
 def _resolve_derm_path(image_root: str, source_tag: str,
@@ -31,11 +33,13 @@ def main_build_derm_pool(global_config_path: str) -> str:
     dcfg   = cfg["derm"]
 
     if not dcfg.get("enabled", True):
-        print("[build_derm_pool] Derm disabled in config; nothing to do.")
         return ""
 
     image_root = dcfg["image_root"]
     out_csv    = dcfg["pool_manifest_csv"]
+    _expected = {"source": "derm", "seed": int(cfg.get("seed", 42))}
+    if manifest_exists_and_valid(out_csv, _expected, owner="derm_pool"):
+        return out_csv
     cap        = int(dcfg.get("cases_per_class", 1000))
     seed       = int(cfg.get("seed", 42))
 
@@ -50,15 +54,13 @@ def main_build_derm_pool(global_config_path: str) -> str:
     class_map  = isic_cfg.get("class_map", {c: c.lower() for c in classes})
 
     if not os.path.exists(gt_csv):
-        raise FileNotFoundError(
+        raise MissingInput(
             f"[build_derm_pool] ISIC-2019 ground truth CSV not found: {gt_csv}"
         )
 
     df = read_csv_defensively(gt_csv)
-    # Drop UNK column if present
     df = df.drop(columns=["UNK"], errors="ignore")
 
-    # Each row is one-hot; derive the primary class label for capping
     present_classes = [c for c in classes if c in df.columns]
     if not present_classes:
         raise KeyError(f"[build_derm_pool] No class columns found. "
@@ -66,7 +68,6 @@ def main_build_derm_pool(global_config_path: str) -> str:
 
     df["_primary_class"] = df[present_classes].idxmax(axis=1)
 
-    # Verify images exist at 224px
     def _exists(row):
         return os.path.exists(
             _resolve_derm_path(image_root, source_tag, str(row[id_col]))
@@ -74,14 +75,10 @@ def main_build_derm_pool(global_config_path: str) -> str:
 
     exists_mask = df.apply(_exists, axis=1)
     n_miss = (~exists_mask).sum()
-    if n_miss:
-        print(f"[build_derm_pool] {n_miss} images not found at 224px; dropping.")
     df = df[exists_mask].copy()
 
-    # Cap per class
     df = cap_per_group(df, "_primary_class", cap=cap, seed=seed)
 
-    # Build manifest rows: one row per image, binary presence cols for all classes
     canonical_names = [class_map.get(c, c.lower()) for c in present_classes]
     rows_data: dict = {
         "case_id":      [f"derm__isic2019__{str(row[id_col])}"
@@ -93,17 +90,16 @@ def main_build_derm_pool(global_config_path: str) -> str:
         "image_subdir": source_tag,
     }
     for col, cname in zip(present_classes, canonical_names):
-        rows_data[cname] = df[col].astype(float).values
+        rows_data[cname] = df[col].astype(float, copy=False).values
 
     pool = pd.DataFrame(rows_data)
     pool = finalize_manifest(pool, label_cols=canonical_names)
     assert_unique_case_ids(pool)
 
     os.makedirs(os.path.dirname(out_csv), exist_ok=True)
-    pool.to_csv(out_csv, index=False)
+    write_csv_atomic(pool, out_csv)
     for cls, grp in pool.groupby("dataset"):
-        pass   # single dataset; class breakdown via primary col
+        pass
     for cname in canonical_names:
         n_pos = int((pool[cname] == 1).sum())
-        print(f"  {cname}: {n_pos} positive")
     return out_csv

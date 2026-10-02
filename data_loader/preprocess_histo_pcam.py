@@ -1,6 +1,6 @@
 """
 data_loader/preprocess_histo_pcam.py
-Created on May 25, 2026
+Created on June 15, 2026
 
 @author: Soroosh Tayebi Arasteh
 https://github.com/tayebiarasteh
@@ -15,6 +15,9 @@ from PIL import Image
 from tqdm import tqdm
 
 from config.serde import read_config
+from Inference.resume_utils import (MissingInput, append_status, cell_is_done, check_build_params,
+                                    claim_cell, release_claim, write_done_flag,
+                                    status_path, write_build_params, write_csv_atomic)
 
 
 def _select_indices(
@@ -32,7 +35,7 @@ def _select_indices(
         rng.choice(pos, size=n, replace=False),
         rng.choice(neg, size=n, replace=False),
     ])
-    return np.sort(sel)   # sorted for sequential H5 read performance
+    return np.sort(sel)
 
 
 def main_preprocess_pcam(global_config_path: str):
@@ -42,7 +45,6 @@ def main_preprocess_pcam(global_config_path: str):
     pcfg   = hcfg["pcam"]
 
     if not pcfg.get("enabled", True):
-        print("[preprocess_pcam] PCam disabled in config; nothing to do.")
         return
 
     seed       = int(cfg.get("seed", 42))
@@ -50,26 +52,36 @@ def main_preprocess_pcam(global_config_path: str):
     split      = pcfg.get("split", "test")
     h5_dir     = pcfg["h5_dir"]
     patch_dir  = os.path.join(h5_dir, pcfg.get("patches_subdir", "patches"))
-    cap        = pcfg.get("extract_cap_per_class", None)   # null in config -> all
+    cap        = pcfg.get("extract_cap_per_class", None)
 
     x_path = os.path.join(h5_dir, f"camelyonpatch_level_2_split_{split}_x.h5")
     y_path = os.path.join(h5_dir, f"camelyonpatch_level_2_split_{split}_y.h5")
     if not (os.path.exists(x_path) and os.path.exists(y_path)):
-        print(f"[preprocess_pcam] missing H5 files in {h5_dir}; expected "
-              f"camelyonpatch_level_2_split_{split}_x.h5 and _y.h5.")
-        return
+        raise MissingInput(
+            f"[preprocess_pcam] the PCam H5 files are absent in {h5_dir}; expected "
+            f"camelyonpatch_level_2_split_{split}_x.h5 and _y.h5.")
 
     os.makedirs(patch_dir, exist_ok=True)
+    status = status_path(cfg, "preprocess_pcam")
+    if cell_is_done(patch_dir):
+        return
+    if not claim_cell(patch_dir, "pcam", owner="preprocess_pcam"):
+        return
+    if cell_is_done(patch_dir):
+        release_claim(patch_dir, "pcam")
+        return
+    stamp = os.path.join(patch_dir, ".pcam_build_params.json")
+    build = {"split": split, "resolution": out_res, "cap": cap, "seed": seed}
+    if not check_build_params(stamp, build, owner="preprocess_pcam"):
+        pass
 
     with h5py.File(y_path, "r") as fy:
         y = np.array(fy["y"]).reshape(-1).astype(int)
     indices = _select_indices(y, cap, seed)
-    print(f"[preprocess_pcam] {len(y):,} patches in split '{split}'; "
-          f"extracting {len(indices):,} to {patch_dir} at {out_res}px.")
 
     written, skipped, errors = 0, 0, 0
     with h5py.File(x_path, "r") as fx:
-        X = fx["x"]   # (N, 96, 96, 3) uint8
+        X = fx["x"]
         for i in tqdm(indices.tolist(), unit="patch"):
             out_path = os.path.join(patch_dir, f"pcam_{split}_{i:05d}.png")
             if os.path.exists(out_path):
@@ -84,5 +96,11 @@ def main_preprocess_pcam(global_config_path: str):
                 written += 1
             except (OSError, ValueError) as e:
                 errors += 1
-                if errors <= 10:
-                    print(f"[preprocess_pcam] error at idx {i}: {e}")
+
+    if errors:
+        raise RuntimeError(f"[preprocess_pcam] {errors} patch(es) failed to render; the extraction "
+                           f"is incomplete and no done flag is written.")
+    write_build_params(stamp, build)
+    write_done_flag(patch_dir, {"written": written, "skipped": skipped, **build})
+    release_claim(patch_dir, "pcam")
+    append_status(status, f"pcam patches written={written} skipped={skipped} errors={errors}")

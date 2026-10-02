@@ -1,6 +1,6 @@
 """
 data_loader/preprocess_utils.py
-Created on May 25, 2026
+Created on June 13, 2026
 
 @author: Soroosh Tayebi Arasteh
 https://github.com/tayebiarasteh
@@ -12,6 +12,8 @@ from typing import List, Sequence, Tuple
 
 from PIL import Image
 from tqdm import tqdm
+from Inference.resume_utils import MissingInput
+from Inference.resume_utils import check_build_params, write_build_params
 
 DEFAULT_EXTS = (".jpg", ".jpeg", ".png", ".tif", ".tiff")
 
@@ -37,9 +39,15 @@ def resize_tree(
     tag: str = "",
 ) -> None:
     if not raw_root or not os.path.isdir(raw_root):
-        print(f"[preprocess{tag}] raw root absent or not set ({raw_root}); "
-              f"skipping (preprocessed trees already exist).")
-        return
+        raise MissingInput(
+            f"[preprocess{tag}] the raw image root is absent or unset ({raw_root}). On a machine "
+            f"where the preprocessed trees already exist this stage has nothing to do; "
+            f"everywhere else the source tree has to be present.")
+
+    stamp = os.path.join(out_root_224, ".preprocess_build_params.json")
+    params = {"size_224": 224, "size_512": 512, "exts": sorted(exts)}
+    if not check_build_params(stamp, params, owner=f"preprocess{tag}"):
+        pass
 
     jobs: List[Tuple[str, str, str]] = []
     for dirpath, _, files in os.walk(raw_root):
@@ -56,7 +64,6 @@ def resize_tree(
             jobs.append((src, d224, d512))
 
     if not jobs:
-        print(f"[preprocess{tag}] nothing to do under {raw_root}.")
         return
 
     errors = []
@@ -66,5 +73,5 @@ def resize_tree(
             r = fut.result()
             if r.startswith("ERROR"):
                 errors.append(r)
-    for e in errors[:10]:
-        print(" ", e)
+    os.makedirs(out_root_224, exist_ok=True)
+    write_build_params(stamp, params)

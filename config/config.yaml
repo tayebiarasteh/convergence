@@ -1,11 +1,10 @@
 ocean_root:    /PATH
-home_root:     /PATH
 user_home:     /PATH
+datasets_root: /PATH/datasets
+repo_root:     /PATH/convergence
 
-datasets_root: "${ocean_root}/datasets"
 xray_root:     "${datasets_root}/XRay"
-outputs_root:  "${ocean_root}/Repositories_target_files/convergence"
-repo_root:     "${home_root}/Repositories/convergence"
+outputs_root:  "${ocean_root}/PATH/convergence"
 manifests_dir: "${repo_root}/data_loader"
 
 Convergence:
@@ -13,7 +12,7 @@ Convergence:
   seed: 42
   target_resolution: 224
 
-  hf_token: "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"
+  hf_token: "YOUR_HF_TOKEN_HERE"
 
   datasets_root: "${datasets_root}"
   xray_root:     "${xray_root}"
@@ -22,6 +21,7 @@ Convergence:
   manifests_dir: "${manifests_dir}"
 
   cxr:
+    canonical_findings: [atelectasis, cardiomegaly, consolidation, edema, enlarged_cardiomediastinum, fracture, lung_lesion, lung_opacity, no_finding, pleural_effusion, pleural_other, pneumonia, pneumothorax, support_devices]
     pool_manifest_csv:  "${manifests_dir}/cxr_pool_manifest.csv"
     paired_reports_csv: "${manifests_dir}/cxr_paired_reports_manifest.csv"
 
@@ -37,27 +37,25 @@ Convergence:
       mimic:
         enabled:        true
         image_root:     "${xray_root}/MIMIC"
-        master_csv:     "${xray_root}/MIMIC/mimic_master_list.csv"
+        master_csv:     "${xray_root}/MIMIC/master_list.csv"
         split_col:      split
         subject_id_col: subject_id
         study_id_col:   study_id
         age_col:        age
         sex_col:        gender
         report_col:     report_rel_path
-        report_is_text: false
         chexpert_plus_csv: null
 
       chexpert:
         enabled:        true
         image_root:     "${xray_root}"
-        master_csv:     "${xray_root}/CheXpert-v1.0/chexpert_master_list.csv"
+        master_csv:     "${xray_root}/CheXpert-v1.0/master_list.csv"
         split_col:      split
         subject_id_col: subject_id
         study_id_col:   null
         age_col:        age
         sex_col:        gender
         report_col:     null
-        report_is_text: false
         chexpert_plus_csv:  "${xray_root}/CheXpert-v1.0/chexpert_plus.csv"
         report_join_col:    jpg_rel_path
         race_col:           race
@@ -74,7 +72,6 @@ Convergence:
         age_col:        age
         sex_col:        gender
         report_col:     null
-        report_is_text: false
         chexpert_plus_csv: null
 
       nih_cxr14:
@@ -87,20 +84,18 @@ Convergence:
         age_col:        age
         sex_col:        gender
         report_col:     null
-        report_is_text: false
         chexpert_plus_csv: null
 
       padchest:
         enabled:        true
         image_root:     "${xray_root}/padchest"
-        master_csv:     "${xray_root}/padchest/padchest_master_list_20percenttest.csv"
+        master_csv:     "${xray_root}/padchest/master_list.csv"
         split_col:      split
         subject_id_col: PatientID
         study_id_col:   StudyID
         age_col:        age
         sex_col:        gender
         report_col:     null
-        report_is_text: false
         chexpert_plus_csv: null
 
       vindr_pcxr:
@@ -113,7 +108,6 @@ Convergence:
         age_col:        null
         sex_col:        null
         report_col:     null
-        report_is_text: false
         chexpert_plus_csv: null
 
   histo:
@@ -135,19 +129,6 @@ Convergence:
       train_subdir:        NCT-CRC-HE-100K
       val_subdir:          CRC-VAL-HE-7K
       classes: [ADI, BACK, DEB, LYM, MUC, MUS, NORM, STR, TUM]
-
-
-  quilt:
-    enabled:           true
-    root:              "${datasets_root}/Histo/Quilt-1M"
-    lookup_csv:        "${datasets_root}/Histo/Quilt-1M/quilt_1M_lookup.csv"
-    images_subdir:     extracted_images
-    pool_manifest_csv: "${manifests_dir}/quilt_pool_manifest.csv"
-    image_col:         image_path
-    caption_col:       caption
-    split_col:         split
-    split:             train
-    cases_cap:         null
 
   fundus:
     enabled:           true
@@ -196,7 +177,6 @@ Convergence:
     cases_per_finding: 500
     findings_csv:      "${datasets_root}/Mammo/VinDr-Mammo/finding_annotations.csv"
     image_subdir:      images
-    preprocessed_subdir: preprocessed224
     usable_findings:   [mass, suspicious_calcification, focal_asymmetry, architectural_distortion, asymmetry]
     category_map:
       "Mass":                     mass
@@ -212,6 +192,25 @@ Convergence:
     icd10_order_txt:    "${datasets_root}/ontology/ICD10/icd10cm_order_2027.txt"
     icd10_distance_csv: "${outputs_root}/ontology/icd10_finding_distance.csv"
     comorbidity_csv:    "${outputs_root}/ontology/cxr_comorbidity.csv"
+    derm_classes:  [mel, nv, bcc, ak, bkl, df, vasc, scc]
+    derm_lineage:
+      mel:  melanocytic
+      nv:   melanocytic
+      bcc:  keratinocytic
+      scc:  keratinocytic
+      ak:   keratinocytic
+      bkl:  keratinocytic
+      df:   other
+      vasc: other
+    derm_malignancy:
+      mel:  malignant
+      bcc:  malignant
+      scc:  malignant
+      ak:   premalignant
+      nv:   benign
+      bkl:  benign
+      df:   benign
+      vasc: benign
 
   embeddings:
     output_dir:      "${outputs_root}/embeddings"
@@ -222,15 +221,26 @@ Convergence:
     purge_hf_cache_after_use: true
     hf_cache_dir: "${user_home}/.cache/huggingface/hub"
     consensus_max_cases: 50000
+    deviation_max_cases: 20000
     probe_max_train: 25000
     probe_max_test: 20000
+    harmonized_preprocessing:
+      enabled:      true
+      resize:       224
+      crop:         224
+      mean:         [0.485, 0.456, 0.406]
+      std:          [0.229, 0.224, 0.225]
+      max_cases:    5000
+      suffix:       "__harmonized"
+
     pools:
       cxr_pool:    {manifest: "${manifests_dir}/cxr_pool_manifest.csv",    modality: cxr}
       histo_pool:  {manifest: "${manifests_dir}/histo_pool_manifest.csv",  modality: histo}
       fundus_pool: {manifest: "${manifests_dir}/fundus_pool_manifest.csv", modality: fundus}
       derm_pool:   {manifest: "${manifests_dir}/derm_pool_manifest.csv",   modality: derm}
       mammo_pool:  {manifest: "${manifests_dir}/mammo_pool_manifest.csv",  modality: mammo}
-      quilt_pool:  {manifest: "${manifests_dir}/quilt_pool_manifest.csv",  modality: histo}
+      taix_pool:   {manifest: "${manifests_dir}/taix_pool_manifest.csv",   modality: cxr}
+      rexgradient_pool: {manifest: "${manifests_dir}/rexgradient_pool_manifest.csv", modality: cxr}
 
   encoder_panel:
     image:
@@ -240,6 +250,7 @@ Convergence:
         dim: 768
         params_m: 86
         year: 2024
+        objective: ssl
         roles: [core, cxr]
       biomedclip_image:
         hf_id: microsoft/BiomedCLIP-PubMedBERT_256-vit_base_patch16_224
@@ -247,6 +258,7 @@ Convergence:
         dim: 512
         params_m: 86
         year: 2023
+        objective: image_text
         roles: [core, cxr]
       txrv_densenet:
         hf_id: TXRV_BUILTIN
@@ -255,6 +267,7 @@ Convergence:
         dim: 1024
         params_m: 7
         year: 2020
+        objective: supervised
         roles: [core, cxr]
       medgemma_vision:
         hf_id: google/medgemma-1.5-4b-it
@@ -262,30 +275,37 @@ Convergence:
         vision_attr: model.vision_tower
         dim: 1152
         params_m: 400
-        year: 2025
+        year: 2026
+        objective: image_text
         roles: [core, cxr]
+        batch_size: 4
       llava_med_vision:
         hf_id: chaoyinshe/llava-med-v1.5-mistral-7b-hf
         type: vlm_vision
         vision_attr: model.vision_tower
         dim: 1024
-        params_m: 304
+        params_m: 307
         year: 2024
+        objective: image_text
         roles: [core, cxr]
+        batch_size: 4
       llava_onevision_vision:
         hf_id: llava-hf/llava-onevision-qwen2-7b-ov-hf
         type: vlm_vision
         vision_attr: model.vision_tower
         dim: 1152
-        params_m: 729
+        params_m: 400
         year: 2024
+        objective: image_text
         roles: [core, cxr]
+        batch_size: 4
       dinov3_s:
         hf_id: facebook/dinov3-vits16-pretrain-lvd1689m
         type: dino_cls
         dim: 384
         params_m: 22
         year: 2025
+        objective: ssl
         roles: [ladder]
       dinov3_b:
         hf_id: facebook/dinov3-vitb16-pretrain-lvd1689m
@@ -293,6 +313,7 @@ Convergence:
         dim: 768
         params_m: 86
         year: 2025
+        objective: ssl
         roles: [ladder]
       dinov3_l:
         hf_id: facebook/dinov3-vitl16-pretrain-lvd1689m
@@ -300,20 +321,24 @@ Convergence:
         dim: 1024
         params_m: 307
         year: 2025
+        objective: ssl
         roles: [core, ladder]
       dinov3_hplus:
         hf_id: facebook/dinov3-vith16plus-pretrain-lvd1689m
         type: dino_cls
-        dim: 1536
-        params_m: 632
+        dim: 1280
+        params_m: 840
         year: 2025
+        objective: ssl
         roles: [ladder]
+        batch_size: 16
       dinov2_large:
         hf_id: facebook/dinov2-large
         type: dino_cls
         dim: 1024
         params_m: 307
         year: 2023
+        objective: ssl
         roles: [core, ladder]
       clip_vitl14:
         hf_id: openai/clip-vit-large-patch14
@@ -321,13 +346,15 @@ Convergence:
         dim: 768
         params_m: 307
         year: 2021
+        objective: image_text
         roles: [core]
       siglip2_large:
         hf_id: google/siglip2-large-patch16-512
         type: clip_pooled
-        dim: 1152
+        dim: 1024
         params_m: 307
-        year: 2024
+        year: 2025
+        objective: image_text
         roles: [core]
       uni:
         hf_id: MahmoodLab/UNI
@@ -335,46 +362,56 @@ Convergence:
         dim: 1024
         params_m: 307
         year: 2024
+        objective: ssl
         roles: [core, xmod, ladder]
         gated: true
       uni2:
         hf_id: MahmoodLab/UNI2-h
         type: timm_cls
         dim: 1536
-        params_m: 632
-        year: 2024
+        params_m: 681
+        year: 2025
+        objective: ssl
         roles: [core, xmod, ladder]
         gated: true
+        batch_size: 16
       virchow:
         hf_id: paige-ai/Virchow
         type: timm_cls
         dim: 1280
-        params_m: 307
+        params_m: 632
         year: 2024
+        objective: ssl
         roles: [core, xmod, ladder]
         gated: true
+        batch_size: 16
       virchow2:
         hf_id: paige-ai/Virchow2
         type: timm_cls
         dim: 1280
         params_m: 632
         year: 2024
+        objective: ssl
         roles: [core, xmod, ladder]
         gated: true
+        batch_size: 16
       prov_gigapath:
         hf_id: prov-gigapath/prov-gigapath
         type: timm_cls
         dim: 1536
         params_m: 1100
         year: 2024
+        objective: ssl
         roles: [core, xmod]
         gated: true
+        batch_size: 16
       conch_image:
         hf_id: MahmoodLab/CONCH
         type: timm_cls
         dim: 512
         params_m: 86
         year: 2024
+        objective: image_text
         roles: [core, xmod]
         gated: true
       phikon_v2:
@@ -383,6 +420,7 @@ Convergence:
         dim: 1024
         params_m: 307
         year: 2024
+        objective: ssl
         roles: [core, xmod, ladder]
       retfound:
         hf_id: iszt/RETFound_mae_meh
@@ -390,6 +428,7 @@ Convergence:
         dim: 1024
         params_m: 307
         year: 2023
+        objective: ssl
         roles: [core, xmod]
       random_init_vit_l:
         hf_id: null
@@ -398,6 +437,7 @@ Convergence:
         dim: 1024
         params_m: 307
         year: 0
+        objective: none
         roles: [control, random_init]
 
     text:
@@ -440,20 +480,47 @@ Convergence:
         dim: 768
         roles: [text]
 
+  stats:
+    n_boot:            1000
+    n_perm:            1000
+    boot_seed:         0
+    n_perm_structural: 200
+    n_boot_neighbor:   200
+    n_perm_transfer:   20
+
   alignment:
-    k_values:         [5, 10, 20, 50]
-    headline_k:       10
-    n_samples:        [1000, 5000, 20000, 100000]
-    anchor_sizes:     [256, 1024, 4096]
-    headline_anchors: 1024
-    cka_rbf_n_subsample: 2000
+    primary_k:       10
+    primary_anchors: 1024
     results_base_dir: "${outputs_root}"
     consensus_dir:    "${outputs_root}/consensus"
-    e1_pools:   [cxr_pool]
-    e2_pools:   [cxr_pool]
-    e3_pools:   [cxr_pool]
+    label_budgets:    [50, 200, 1000]
+    refit_draws:      20
+    gpa_max_iter:     2000
+    gpa_tol:          1.0e-6
+    matched_n:        2500
+    e6_positives_n:   500
+    e10_acquisition_n: 1000
+    k_fraction:       0.004
+    pool_n_cap:       20000
+    h4_alignment_metric: mknn_at_pool_cap
+    h4_link_metrics:  [mknn_at_pool_cap, cknna_at_pool_cap, headline_mknn, headline_cknna, cka_linear]
+    anchor_sweep:     [256, 1024, 4096]
+    stitching_max_pairs: 0
+    stitching_map_budgets: [2048, 4096, 8192, 25000]
+    e1_pools:   [cxr_pool, histo_pool, derm_pool, fundus_pool, mammo_pool]
+    e2_pools:   [cxr_pool, rexgradient_pool]
+    e3_pools:   [cxr_pool, derm_pool]
     e4_pools:   [cxr_pool]
     e6_pools:   [cxr_pool]
+    e9_pools:   [taix_pool]
+    e10_pools:  [rexgradient_pool, taix_pool, cxr_pool]
+    e10_harmonized_pools: [cxr_pool]
+    consensus_groups:
+      chest_specialist: [rad_dino, biomedclip_image, txrv_densenet]
+      vlm_vision_tower: [medgemma_vision, llava_med_vision, llava_onevision_vision]
+      general_self_supervised: [dinov3_l, dinov2_large]
+      general_image_text: [clip_vitl14, siglip2_large]
+      pathology: [uni, uni2, virchow, virchow2, prov_gigapath, conch_image, phikon_v2]
     e1_roles:   [core]
     e4_roles:   [ladder, core]
     xmod_roles: [xmod, core]
@@ -461,48 +528,151 @@ Convergence:
   controlled:
     ckpts_dir:         "${outputs_root}/controlled_ckpts"
     results_e5_dir:    "${outputs_root}/results_e5_driver"
-    objectives:        [ssl, supervised, image_text]
+    objectives:        [mae, dino, simclr, supervised, image_text]
+    modality_objective_exclusions:
+      histo: [image_text]
     backbones:         [vit_s, vit_b]
-    inits:             [dinov3_s]
+    inits:             [dinov3, random]
+    random_arm:
+      backbones:       [vit_s]
+      n_seeds:         1
+    max_steps:         20000
+    checkpoint_every_steps: 200
+    common_intersection: true
+    min_mixture_rows:  1000
     modalities:        [cxr, histo]
     cxr_n_labels:      13
     histo_n_classes:   9
-    epochs:            50
+    dataloader_workers: 8
+    adamw_fused:       true
     batch_size:        256
     effective_batch_size: 512
     lr:                0.0001
     weight_decay:      0.05
     warmup_fraction:   0.1
-    n_seeds:           1
-    n_boot_alignment:  1000
-    ssl_method:        mae
+    n_seeds:           3
     mae_mask_ratio:    0.75
     clip_temp:         0.07
+    image_text_train_text_tower: true
+    simclr_temp:       0.2
+    simclr_proj_dim:   128
+    dino_out_dim:      2048
+    dino_teacher_momentum: 0.996
+    dino_temp_student: 0.1
+    dino_temp_teacher: 0.04
+    dino_center_momentum: 0.9
+    verify_steps:            300
+    verify_batch_size:       32
+    verify_eval_batches:     20
+    verify_min_relative_gain: 0.01
     bf16:              true
     gradient_checkpointing: true
+    disjoint_pair:
+      enabled:         true
+      objective:       simclr
+      backbone:        vit_s
+      n_seeds:         2
+    transfer:
+      enabled:         true
+
+  frame:
+    enabled:        true
+    ckpts_dir:      "${root}/controlled_ckpts"
+    data_composition: natural
+    objective_map:
+      ssl:        simclr
+      supervised: supervised
+      image_text: image_text
+    runs:
+      - cxr__ssl__vit_s__dinov3_s__natural__seed0
+      - cxr__ssl__vit_s__dinov3_s__natural__seed1
+      - cxr__ssl__vit_s__dinov3_s__natural__seed2
+      - cxr__ssl__vit_b__dinov3_b__natural__seed0
+      - cxr__supervised__vit_s__dinov3_s__natural__seed0
+      - cxr__supervised__vit_s__dinov3_s__natural__seed1
+      - cxr__supervised__vit_s__dinov3_s__natural__seed2
+      - cxr__supervised__vit_b__dinov3_b__natural__seed0
+      - cxr__image_text__vit_s__dinov3_s__natural__seed0
+      - cxr__image_text__vit_s__dinov3_s__natural__seed1
+      - cxr__image_text__vit_s__dinov3_s__natural__seed2
+      - cxr__image_text__vit_b__dinov3_b__natural__seed0
+      - cxr__image_text__vit_s__dinov3_s__scrubbed__seed0
+      - cxr__image_text__vit_b__dinov3_b__scrubbed__seed0
+      - cxr__image_text__vit_s__dinov3_s__amplified__seed0
+      - cxr__image_text__vit_b__dinov3_b__amplified__seed0
+    performance_csv: "${root}/final_tables/results_performance.csv"
+
+  granularity:
+    enabled:           true
+    forms:             [presence, laterality, severity]
+    backbones:         [vit_s, vit_b]
+    n_seeds:           3
+    init:              dinov3
+    max_train_cases:   0
+    probe_max_train:   8000
+    probe_max_test:    8000
 
   reader_study:
-    n_gold_r1:          500
-    n_triplets_r1:      300
-    n_overlap_r2:       150
-    n_triplet_overlap_r2: 100
-    n_extension_r2:     150
     gold_csv:            "${outputs_root}/results_e7_artifact/reader/gold_labels.csv"
     triplets_csv:        "${outputs_root}/results_e3_ontology/reader/triplets.csv"
-    deviation_score_csv: "${outputs_root}/results_e7_artifact/deviation_scores.csv"
-    agreement_csv:       "${outputs_root}/results_e7_artifact/reader/inter_rater_agreement.csv"
-    n_gold_path:         500
-    n_triplets_path:     300
-    path_gold_csv:       "${outputs_root}/results_e7_artifact/reader/path_gold_labels.csv"
-    path_triplets_csv:   "${outputs_root}/results_e3_ontology/reader/path_triplets.csv"
-    histo_deviation_score_csv: ""
+
+  taix:
+    root:               "${xray_root}/TAIX-Ray"
+    master_csv:         "${xray_root}/TAIX-Ray/taix_master_list.csv"
+    image_root:         "${xray_root}/TAIX-Ray/preprocessed224"
+    pool_manifest_csv:  "${manifests_dir}/taix_pool_manifest.csv"
+    enabled:            true
+    binary_label_map:
+      cardiomegaly_binary:        cardiomegaly
+      congestion_binary:          edema
+      pleural_effusion_binary:    pleural_effusion
+      lung_opacity_binary:        lung_opacity
+      atelectasis_binary:         atelectasis
+    graded_columns:     [cardiomegaly, congestion, pleural_effusion_right, pleural_effusion_left,
+                         lung_opacity_right, lung_opacity_left, atelectasis_right, atelectasis_left]
+    side_resolved:      [pleural_effusion, lung_opacity, atelectasis]
+    rater_col:          physician_id
+    max_cases:          50000
+
+  rexgradient:
+    root:               "${xray_root}/ReXGradient-160K"
+    master_csv:         "${xray_root}/ReXGradient-160K/rexgradient_masterlist.csv"
+    image_root:         "${xray_root}/ReXGradient-160K/preprocessed224"
+    pool_manifest_csv:  "${manifests_dir}/rexgradient_pool_manifest.csv"
+    enabled:            true
+    institution_col:    InstitutionName
+    manufacturer_col:   Manufacturer
+    patient_col:        PatientID
+    view_col:           ImageViewPosition
+    report_cols:        [Findings, Impression]
+    max_cases:          20000
+
+  provenance:
+    uncontaminated_sources: [taix, rexgradient]
+
+  splits:
+    dir:                "${manifests_dir}/splits"
+    anchor_dev_csv:     "${manifests_dir}/splits/anchor_development_cases.csv"
+    anchor_source_site: mimic
+    anchor_n:           4096
+    holdout_sites:      [chexpert, nih_cxr14, padchest, vindr_cxr, vindr_pcxr, taix]
+
+  artifact:
+    consensus_dir:    "${outputs_root}/consensus"
+
+  outputs:
+    status_dir: "${outputs_root}/status"
 
   theory:
     results_e8_dir:  "${outputs_root}/results_e8_theory"
     n_synthetic:     2000
     n_signal_dims:   32
-    n_nuisance_dims: 128
+    n_distractor_dims: 128
     n_labels:        10
-    label_noise:     0.1
     n_seeds:         5
-    informativeness_grid: [0.1, 0.25, 0.5, 0.75, 1.0]
+    informativeness_grid: [0.0, 0.1, 0.25, 0.5, 0.75, 1.0]
+    snr_grid:        [0.5, 1.0, 2.0]
+    objectives:      [reconstruct, denoise, classify, regress]
+    hidden_dim:      64
+    n_test:          500
+    positive_control_doses: [0.0, 0.2, 0.4, 0.6, 0.8, 1.0]

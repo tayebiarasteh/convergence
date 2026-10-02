@@ -1,6 +1,6 @@
 """
 encoders/text_encoders.py
-Created on May 29, 2026
+Created on June 21, 2026
 
 @author: Soroosh Tayebi Arasteh
 https://github.com/tayebiarasteh
@@ -14,6 +14,7 @@ import torch
 import torch.nn.functional as F
 
 from config.serde import read_config
+from encoders.panel import export_hf_token, resolve_hf_token
 
 import warnings
 warnings.filterwarnings("ignore")
@@ -35,7 +36,8 @@ def _load_text_encoder(model_name: str, cfg_path: str, device: str):
     spec = _get_text_spec(model_name, cfg)
     hf_id    = spec["hf_id"]
     enc_type = spec["type"]
-    token = cfg["Convergence"].get("hf_token", None)
+    token = resolve_hf_token(cfg)
+    export_hf_token(token)
     fp16  = cfg["Convergence"]["embeddings"].get("fp16", True)
     dtype = torch.float16 if fp16 else torch.float32
 
@@ -69,8 +71,6 @@ def _load_text_encoder(model_name: str, cfg_path: str, device: str):
                 f"github.com/mahmoodlab/CONCH.git) and accepted HF terms. "
                 f"Import error: {e}"
             ) from e
-        # Past the import: any failure here (download, CUDA, dtype, auth) is a real
-        # runtime error and is surfaced as-is, NOT relabeled as a missing package.
         conch_model, _ = create_model_from_pretrained(
             "conch_ViT-B-16", checkpoint_path=f"hf_hub:{hf_id}", hf_auth_token=token,
         )
@@ -94,6 +94,10 @@ def _load_text_encoder(model_name: str, cfg_path: str, device: str):
         load_kwargs = dict(token=token, trust_remote_code=True)
 
         load_8bit = bool(spec.get("load_in_8bit", False))
+        if load_8bit:
+            raise ValueError(
+                f"[text] 8-bit quantization is not used in this project: it has produced all-NaN "
+                f"outputs for checkpoints of this family. Set load_in_4bit instead.")
         load_4bit = bool(spec.get("load_in_4bit", False))
 
         if device == "cuda" and _torch.cuda.is_available():
@@ -108,8 +112,6 @@ def _load_text_encoder(model_name: str, cfg_path: str, device: str):
             max_mem["cpu"] = f"{int(cfg['Convergence'].get('embeddings', {}).get('cpu_offload_gib', 96))}GiB"
             load_kwargs["device_map"] = "auto"
             load_kwargs["max_memory"] = max_mem
-            print(f"[text_encoders] {model_name}: sharding across {n_gpus} GPUs, "
-                  f"max_memory={max_mem}")
         else:
             load_kwargs["device_map"] = None
 
@@ -122,10 +124,7 @@ def _load_text_encoder(model_name: str, cfg_path: str, device: str):
             else:
                 bnb = BitsAndBytesConfig(load_in_8bit=True)
             load_kwargs["quantization_config"] = bnb
-            print(f"[text_encoders] {model_name}: "
-                  f"{'4-bit' if load_4bit else '8-bit'} quantized load.")
         else:
-            # Non-quantized: set the dtype (newer transformers prefer `dtype`).
             import inspect
             _sig = inspect.signature(AutoModelForCausalLM.from_pretrained)
             load_kwargs["dtype" if "dtype" in _sig.parameters else "torch_dtype"] = dtype
@@ -141,11 +140,8 @@ def _load_text_encoder(model_name: str, cfg_path: str, device: str):
                 from transformers import Gemma3ForConditionalGeneration
                 ModelClass = Gemma3ForConditionalGeneration
                 is_gemma3_vlm = True
-                print(f"[text_encoders] {model_name}: detected {arch}; loading full "
-                      f"VLM and using its .language_model submodule for text.")
         except Exception as e:
-            print(f"[text_encoders] {model_name}: arch detection failed ({e}); "
-                  f"using AutoModelForCausalLM.")
+            pass
 
         model = ModelClass.from_pretrained(hf_id, **load_kwargs)
         if is_gemma3_vlm:
@@ -165,13 +161,34 @@ def _l2_norm(x: torch.Tensor) -> np.ndarray:
     return F.normalize(x.float(), p=2, dim=-1).cpu().numpy()
 
 
+def _project_text(model, out) -> torch.Tensor:
+    pooled = getattr(out, "pooler_output", None)
+    if pooled is None:
+        raise RuntimeError(
+            f"[text_encoders] the text tower returned {type(out).__name__} with no pooler_output, "
+            f"so the projected embedding cannot be recovered.")
+    proj = getattr(model, "text_projection", None)
+    if proj is None or not hasattr(proj, "in_features"):
+        return pooled
+    if int(pooled.shape[-1]) != int(proj.in_features):
+        raise RuntimeError(
+            f"[text_encoders] the pooled text output is {int(pooled.shape[-1])} wide while "
+            f"text_projection takes {int(proj.in_features)}.")
+    return proj(pooled)
+
+
+def _last_real_token(attention_mask: torch.Tensor) -> torch.Tensor:
+    flipped = attention_mask.flip(dims=[1])
+    trailing = flipped.to(torch.int64).argmax(dim=1)
+    return (attention_mask.size(1) - 1 - trailing).clamp(min=0)
+
+
 def extract_text_embeddings(
     model_name: str,
     texts: List[str],
     cfg_path: str,
     device: str = "cuda",
 ) -> np.ndarray:
-    """Embed a batch of text strings. Returns (N, D) float32, L2-normalized."""
     model, tok, spec = _load_text_encoder(model_name, cfg_path, device)
     enc_type = spec["type"]
 
@@ -190,7 +207,6 @@ def extract_text_embeddings(
         return _l2_norm(emb)
 
     if enc_type == "clip_text":
-        # open_clip BiomedCLIP: tok is ("open_clip", tokenizer); use encode_text.
         if isinstance(tok, tuple) and tok[0] == "open_clip":
             oc_tokenizer = tok[1]
             tokens = oc_tokenizer(texts).to(device)
@@ -201,11 +217,14 @@ def extract_text_embeddings(
                   max_length=77)
         enc = {k: v.to(device) for k, v in enc.items()}
         with torch.no_grad():
+            emb = None
             if hasattr(model, "get_text_features"):
                 emb = model.get_text_features(**enc)
-            else:
+                if not isinstance(emb, torch.Tensor):
+                    emb = _project_text(model, emb)
+            if emb is None:
                 out = model.text_model(**enc)
-                emb = out.pooler_output
+                emb = _project_text(model, out)
         return _l2_norm(emb)
 
     if enc_type == "conch_text":
@@ -227,19 +246,16 @@ def extract_text_embeddings(
     if enc_type == "causal_lm_last":
         enc = tok(texts, return_tensors="pt", padding=True, truncation=True,
                   max_length=512)
-        # With device_map="auto" the model may be sharded across devices; inputs
-        # must go to the device of the input-embedding layer, not a hardcoded cuda:0.
         try:
             in_dev = model.get_input_embeddings().weight.device
         except Exception:
             in_dev = next(model.parameters()).device
         enc = {k: v.to(in_dev) for k, v in enc.items()}
         with torch.no_grad():
-            out = model(**enc, output_hidden_states=True)
-        # Last token of the last hidden state
-        hs  = out.hidden_states[-1]       # (B, T, D)
-        lens = enc["attention_mask"].sum(dim=1) - 1   # index of last real token
-        emb  = hs[torch.arange(len(texts), device=hs.device), lens, :]
+            out = model(**enc, output_hidden_states=True, use_cache=False)
+        hs  = out.hidden_states[-1]
+        idx = _last_real_token(enc["attention_mask"]).to(hs.device)
+        emb  = hs[torch.arange(len(texts), device=hs.device), idx, :]
         return _l2_norm(emb)
 
     raise ValueError(f"[text_encoders] No extraction path for type '{enc_type}'")

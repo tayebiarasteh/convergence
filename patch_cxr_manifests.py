@@ -1,6 +1,6 @@
 """
 patch_cxr_manifests.py
-Created on May 29, 2026
+Created on June 14, 2026
 
 @author: Soroosh Tayebi Arasteh
 https://github.com/tayebiarasteh
@@ -12,11 +12,14 @@ import numpy as np
 import pandas as pd
 
 from config.serde import read_config
+from Inference.resume_utils import (MissingInput, append_status, check_build_params,
+                                    params_path, status_path, write_build_params,
+                                    write_csv_atomic)
 
 
 def _patch_pool(pool_csv: str) -> None:
     if not os.path.exists(pool_csv):
-        print(f"[patch] Pool manifest not found: {pool_csv} — skip.")
+        raise MissingInput(f"the CXR pool manifest is absent at {pool_csv}; run main_build_cxr_pool before main_patch_cxr_manifests.")
         return
 
     df      = pd.read_csv(pool_csv, low_memory=False)
@@ -60,24 +63,19 @@ def _patch_pool(pool_csv: str) -> None:
                 changed["vindr_cxr_age_zero"] = f"{n} rows → NaN"
 
     if changed:
-        df.to_csv(pool_csv, index=False)
-        print(f"  Saved {len(df)} rows.  Changes:")
-        for k, v in changed.items():
-            print(f"    {k}: {v}")
-    else:
-        print("  Already clean — no changes needed.")
-
+        write_csv_atomic(df, pool_csv)
+        write_build_params(pool_csv, {'patched_by': 'patch_cxr_manifests'})
 
 
 def _patch_paired_reports(paired_csv: str, mimic_image_root: str) -> None:
     if not os.path.exists(paired_csv):
-        print(f"[patch] Paired-reports manifest not found: {paired_csv} — skip.")
+        raise MissingInput(f"the paired-report manifest is absent at {paired_csv}; run main_build_cxr_paired_reports "
+                           f"before main_patch_cxr_manifests.")
         return
 
     df = pd.read_csv(paired_csv, low_memory=False)
 
     if "report_path" not in df.columns:
-        print("  No report_path column — skip.")
         return
 
     MARKER = "mimic-cxr-reports/"
@@ -94,22 +92,27 @@ def _patch_paired_reports(paired_csv: str, mimic_image_root: str) -> None:
                 n_fixed += 1
 
     if n_fixed:
-        df.to_csv(paired_csv, index=False)
-        print(f"  Fixed {n_fixed} report_path values → prefix now {mimic_image_root}")
-    else:
-        print("  Already clean — no changes needed.")
+        write_csv_atomic(df, paired_csv)
+        write_build_params(paired_csv, {'patched_by': 'patch_cxr_manifests'})
 
 
 def main_patch_cxr_manifests(global_config_path: str) -> None:
-    cfg  = read_config(global_config_path)["Convergence"]
-    pool_csv   = cfg["cxr"]["pool_manifest_csv"]
+    cfg = read_config(global_config_path)["Convergence"]
+    status = status_path(cfg, "patch_manifests")
+    pool_csv = cfg["cxr"]["pool_manifest_csv"]
     paired_csv = cfg["cxr"]["paired_reports_csv"]
     mimic_root = cfg["cxr"]["sites"]["mimic"]["image_root"]
 
+    expected = {"patched_by": "patch_cxr_manifests", "mimic_root": mimic_root}
+    already = (check_build_params(pool_csv, expected, owner="patch_cxr_manifests")
+               and check_build_params(paired_csv, expected, owner="patch_cxr_manifests")
+               and os.path.exists(params_path(pool_csv))
+               and os.path.exists(params_path(paired_csv)))
+    if already:
+        return
+
     _patch_pool(pool_csv)
     _patch_paired_reports(paired_csv, mimic_root)
-
-
-if __name__ == "__main__":
-    from main_convergence import GLOBAL_CONFIG_PATH
-    main_patch_cxr_manifests(GLOBAL_CONFIG_PATH)
+    write_build_params(pool_csv, expected)
+    write_build_params(paired_csv, expected)
+    append_status(status, "patched the CXR pool and paired-report manifests")

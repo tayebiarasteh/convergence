@@ -1,6 +1,6 @@
 """
 data_loader/build_utils.py
-Created on May 25, 2026
+Created on June 13, 2026
 
 @author: Soroosh Tayebi Arasteh
 https://github.com/tayebiarasteh
@@ -10,11 +10,22 @@ from typing import Dict, List, Optional, Sequence
 
 import numpy as np
 import pandas as pd
+from Inference.resume_utils import write_csv_atomic
 
 
 CORE_COLUMNS: List[str] = [
     "case_id", "dataset", "modality", "split", "image_key", "image_subdir",
 ]
+
+
+AGE_BAND_EDGES = [0, 40, 60, 80, 200]
+AGE_BAND_LABELS = ["<40", "40-60", "60-80", "80+"]
+
+
+def age_band(values) -> pd.Series:
+    band = pd.cut(pd.to_numeric(pd.Series(values), errors="coerce"),
+                  bins=AGE_BAND_EDGES, labels=AGE_BAND_LABELS)
+    return band.astype(object).where(band.notna(), None)
 
 
 def finalize_manifest(
@@ -31,24 +42,12 @@ def finalize_manifest(
     return df[declared + rest]
 
 
-
 def read_csv_defensively(path: str, **kwargs) -> pd.DataFrame:
-    """Master lists may come from heterogeneous exporters; try UTF-8 then
-    latin-1 before giving up. low_memory is disabled by default because these
-    wide label tables otherwise trigger mixed-dtype column warnings."""
     kwargs.setdefault("low_memory", False)
     try:
         return pd.read_csv(path, **kwargs)
     except UnicodeDecodeError:
         return pd.read_csv(path, encoding="latin-1", **kwargs)
-
-
-
-def new_rng(seed: int) -> np.random.Generator:
-    """Single source of data-sampling randomness. Inferential statistics use a
-    separate legacy RandomState elsewhere; this is for data construction only."""
-    return np.random.default_rng(int(seed))
-
 
 
 def binarize_presence(
@@ -72,36 +71,17 @@ def binarize_presence(
     return np.nan
 
 
-
 def cap_per_group(
     df: pd.DataFrame,
     group_col: str,
     cap: int,
     seed: int = 42,
 ) -> pd.DataFrame:
-    """Randomly downsample each group to at most `cap` rows. Groups smaller
-    than the cap pass through whole. Deterministic under `seed`."""
     if cap is None or cap <= 0:
         return df.reset_index(drop=True)
     parts = []
     for _, grp in df.groupby(group_col, sort=False):
         parts.append(grp.sample(n=cap, random_state=seed) if len(grp) > cap else grp)
-    out = pd.concat(parts, ignore_index=True) if parts else df.iloc[0:0]
-    return out.reset_index(drop=True)
-
-
-def stratified_sample(
-    df: pd.DataFrame,
-    strata_cols: Sequence[str],
-    n_per_stratum: int,
-    seed: int = 42,
-) -> pd.DataFrame:
-    parts = []
-    for _, grp in df.groupby(list(strata_cols), sort=False):
-        parts.append(
-            grp.sample(n=n_per_stratum, random_state=seed)
-            if len(grp) > n_per_stratum else grp
-        )
     out = pd.concat(parts, ignore_index=True) if parts else df.iloc[0:0]
     return out.reset_index(drop=True)
 
@@ -112,9 +92,6 @@ def balanced_presence_sample(
     n_per_class: int,
     seed: int = 42,
 ) -> pd.DataFrame:
-    """Sample an equal number of present (1) and absent (0) rows for one
-    finding column, ignoring NaN (unlabeled) rows. Returns up to
-    2 * n_per_class rows. Used for per-finding probe and anchor construction."""
     rng_state = int(seed)
     pos = df[df[finding_col] == 1.0]
     neg = df[df[finding_col] == 0.0]
@@ -129,21 +106,76 @@ def balanced_presence_sample(
     return out.reset_index(drop=True)
 
 
-
-def make_case_ids(dataset: str, keys: Sequence[str]) -> List[str]:
-    out = []
-    for k in keys:
-        norm = str(k).strip().replace("/", "_").replace(" ", "_")
-        out.append(f"{dataset}__{norm}")
+def patient_split_leak(df: pd.DataFrame, split_col: str = "split",
+                       subject_col: str = "subject_id",
+                       dataset_col: str = "dataset") -> Dict:
+    out = {"n_leaking_patients": 0, "leaking": [], "n_unidentified": 0, "unidentified_sites": {}}
+    if split_col not in df.columns or subject_col not in df.columns:
+        return out
+    sid = df[subject_col].astype(str).str.strip()
+    known = df[subject_col].notna() & (sid.str.lower() != "nan") & (sid != "")
+    out["n_unidentified"] = int((~known).sum())
+    if out["n_unidentified"] and dataset_col in df.columns:
+        out["unidentified_sites"] = (df.loc[~known, dataset_col].astype(str)
+                                     .value_counts().to_dict())
+    have = df[known]
+    if have.empty:
+        return out
+    key = ((have[dataset_col].astype(str) + "__" + sid[known]) if dataset_col in have.columns
+           else sid[known])
+    splits = have[split_col].astype(str).str.lower().replace({"val": "valid"})
+    spread = (pd.DataFrame({"key": key.values, "split": splits.values})
+              .groupby("key")["split"].nunique())
+    bad = spread[spread > 1]
+    out["n_leaking_patients"] = int(len(bad))
+    out["leaking"] = [str(k) for k in bad.index[:10]]
     return out
 
 
+def assert_patient_disjoint(df: pd.DataFrame, label: str, **kwargs) -> Dict:
+    rep = patient_split_leak(df, **kwargs)
+    if rep["n_leaking_patients"]:
+        raise ValueError(
+            f"[splits] {label}: {rep['n_leaking_patients']} patient(s) appear in more than one "
+            f"split, for example {rep['leaking']}. Every score fitted on this split is inflated.")
+    return rep
+
+
 def assert_unique_case_ids(df: pd.DataFrame) -> None:
-    """Fail loudly if case_id is not unique; a duplicated id silently corrupts
-    every downstream join, so this is checked at build time, not inference."""
     dups = df["case_id"][df["case_id"].duplicated()].unique()
     if len(dups):
         raise ValueError(
             f"{len(dups)} duplicate case_id values, e.g. {list(dups[:5])}. "
             f"Fix the per-dataset key before writing the manifest."
         )
+
+
+def manifest_exists_and_valid(path: str, expected: dict, owner: str,
+                              legacy: dict = None) -> bool:
+    import os
+    from Inference.resume_utils import IncompatibleArtifact, check_build_params
+    if not os.path.exists(path):
+        return False
+    try:
+        check_build_params(path, expected, owner=owner, raise_on_mismatch=True, legacy=legacy)
+    except IncompatibleArtifact as e:
+        return False
+    try:
+        import pandas as pd
+        if len(pd.read_csv(path, nrows=1)) == 0:
+            return False
+    except Exception:
+        return False
+    return True
+
+
+def write_manifest(df, path: str, expected: dict, owner: str,
+                      status_file: str = None, note: str = "") -> str:
+    from Inference.resume_utils import append_status, write_build_params, write_csv_atomic
+    if df is None or len(df) == 0:
+        raise ValueError(f"[{owner}] refusing to write a zero-row manifest to {path}.")
+    write_csv_atomic(df, path)
+    write_build_params(path, expected)
+    if status_file:
+        append_status(status_file, f"{owner}: {len(df)} rows -> {path}. {note}".strip())
+    return path
